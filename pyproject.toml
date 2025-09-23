@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "carconnectivity-connector-audi"
-description = "CarConnectivity connector for Audi services"
+description = "CarConnectivity connector for Audi services - integrates with Till Steinbach's CarConnectivity framework"
 dynamic = ["version"]
 requires-python = ">=3.9"
 authors = [
@@ -21,6 +21,7 @@ dependencies = [
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
+keywords = ["audi", "car", "connectivity", "api", "myaudi", "automotive", "carconnectivity"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
@@ -30,10 +31,17 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries"
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Home Automation",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content"
 ]
 
 [project.urls]
+Homepage = "https://github.com/acfischer42/CarConnectivity-connector-audi"
+Repository = "https://github.com/acfischer42/CarConnectivity-connector-audi"
+Issues = "https://github.com/acfischer42/CarConnectivity-connector-audi/issues"
+"CarConnectivity Framework" = "https://github.com/tillsteinbach/CarConnectivity"
+"CarConnectivity CLI" = "https://github.com/tillsteinbach/CarConnectivity-cli"
 
 [tool.setuptools]
 include-package-data = false
