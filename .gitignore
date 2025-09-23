@@ -7,3 +7,4 @@ __pycache__/
 *.pyo
 .pytest_cache/
 src/carconnectivity_connectors/audi/testing/
+audi_config.json
