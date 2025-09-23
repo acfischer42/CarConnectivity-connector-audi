@@ -1,1 +1,9 @@
 venv*
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+src/carconnectivity_connectors/audi/testing/
