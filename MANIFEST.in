@@ -1,0 +1,13 @@
+include LICENSE
+include pyproject.toml
+include doc/Config.md
+
+recursive-include src/carconnectivity_connectors/audi *.py
+recursive-include src/carconnectivity_connectors/audi/auth *.py
+recursive-include src/carconnectivity_connectors/audi/auth/helpers *.py
+recursive-include src/carconnectivity_connectors/audi/ui *.py
+
+# Explicitly exclude testing directory
+prune src/carconnectivity_connectors/audi/testing
+global-exclude *.pyc
+global-exclude __pycache__

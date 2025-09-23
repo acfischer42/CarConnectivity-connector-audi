@@ -11,7 +11,7 @@ description = "CarConnectivity connector for Audi services"
 dynamic = ["version"]
 requires-python = ">=3.9"
 authors = [
-    { name = "Till Steinbach" }
+    { name = "Achim Fischer based on work of Till Steinbach" }
 ]
 dependencies = [
     "carconnectivity>=0.8",
@@ -34,6 +34,16 @@ classifiers = [
 ]
 
 [project.urls]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["*.testing*", "*testing*"]
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.setuptools_scm]
 write_to = "src/carconnectivity_connectors/audi/_version.py"
