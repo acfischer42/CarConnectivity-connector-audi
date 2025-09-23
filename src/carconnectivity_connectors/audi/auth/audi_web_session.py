@@ -415,6 +415,10 @@ class AudiWebSession(OpenIDSession):
 
     def _get_login_form(self, url: str) -> HTMLFormParser:
         while True:
+            # Check if we've reached the redirect URL with oauth tokens
+            if url.startswith(self.redirect_uri):
+                raise APICompatibilityError(f'Reached redirect URI, tokens should be extracted from URL: {url}')
+            
             response = self.websession.get(url, allow_redirects=False)
             if response.status_code == requests.codes['ok']:
                 break
