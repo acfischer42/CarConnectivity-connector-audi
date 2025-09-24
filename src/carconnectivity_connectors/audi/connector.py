@@ -182,14 +182,23 @@ class Connector(BaseConnector):
         LOG.debug('Audi connector session created: username=%s spin=%s timeout=%s', self.active_config.get('username'), self.active_config.get('spin'), self.session.timeout)
         LOG_API.debug('Audi API debug logger initialized')
 
-        # Only refresh if we have a refresh token, otherwise skip initial refresh
+        # Force initial refresh/authentication to ensure we have valid tokens
         try:
             if hasattr(self.session, 'refresh_token') and self.session.refresh_token:
+                LOG.info("Refresh token available, performing initial token refresh")
                 self.session.refresh()
             else:
-                LOG.info("No refresh token available, skipping initial refresh")
+                LOG.info("No refresh token available, forcing initial authentication")
+                # Force authentication by making a test request that will trigger the auth flow
+                # This will establish fresh tokens including a refresh token
+                try:
+                    test_url = 'https://emea.bff.cariad.digital/vehicle/v1/vehicles'
+                    self.session.get(test_url)
+                    LOG.info("Initial authentication completed successfully")
+                except Exception as auth_error:
+                    LOG.warning(f"Initial authentication failed: {auth_error}, will retry during first data fetch")
         except Exception as e:
-            LOG.warning(f"Initial token refresh failed, continuing: {e}")
+            LOG.warning(f"Initial token refresh/authentication failed, continuing: {e}")
             # Continue without failing - the session should still work for new requests
 
         self._elapsed: List[timedelta] = []
