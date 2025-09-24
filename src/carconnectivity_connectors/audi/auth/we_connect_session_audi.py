@@ -97,9 +97,41 @@ class WeConnectSession(AudiWebSession):
         response = self.do_web_auth(authorization_url_str)
         LOG.debug(f"Web auth completed, got response: {response[:100]}...")
         
-        # Parse tokens directly from the OAuth response
-        self.parse_from_fragment(response)
-        LOG.info("Login successful - tokens obtained from OAuth flow!")
+        # Handle myaudi:// redirect URLs with embedded tokens
+        LOG.debug(f"Checking if response starts with 'myaudi:///': {response.startswith('myaudi:///')}")
+        if response.startswith('myaudi:///'):
+            LOG.debug("Processing myaudi:// URL for token extraction")
+            # Extract tokens directly from the URL fragment
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(response)
+            LOG.debug(f"Parsed URL fragment: {parsed.fragment}")
+            if parsed.fragment:
+                params = parse_qs(parsed.fragment)
+                LOG.debug(f"Parsed parameters: {list(params.keys())}")
+                if 'access_token' in params:
+                    # Build token dict from URL parameters
+                    self.token = {
+                        'access_token': params['access_token'][0],
+                        'token_type': params.get('token_type', ['bearer'])[0],
+                        'expires_in': int(params.get('expires_in', [3600])[0]),
+                    }
+                    if 'refresh_token' in params:
+                        self.token['refresh_token'] = params['refresh_token'][0]
+                    if 'id_token' in params:
+                        self.token['id_token'] = params['id_token'][0]
+                    LOG.info("Login successful - tokens extracted from myaudi:// URL!")
+                else:
+                    LOG.debug("No access_token found in URL, falling back to standard parsing")
+                    # Fall back to standard OAuth parsing
+                    self.parse_from_fragment(response)
+            else:
+                LOG.debug("No URL fragment found, falling back to standard parsing")
+                self.parse_from_fragment(response)
+        else:
+            LOG.debug("Response doesn't start with myaudi:///, using standard OAuth parsing")
+            # Parse tokens directly from the OAuth response
+            self.parse_from_fragment(response)
+            LOG.info("Login successful - tokens obtained from OAuth flow!")
         
         # Set the last_login time
         import time
