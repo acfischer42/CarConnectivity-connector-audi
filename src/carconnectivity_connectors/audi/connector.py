@@ -66,6 +66,12 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.connectors.audi")
 LOG_API: logging.Logger = logging.getLogger("carconnectivity.connectors.audi-api-debug")
 
+# API Enhancement Notes:
+# - Added support for 'ready' value in ExternalPower enum (mapped to AVAILABLE)
+# - Added handling for 'chargeMode' field in charging status
+# - Added handling for 'ledColor' field in plug status
+# - Updated log_extra_keys calls to include new API fields
+
 
 def safe_get_timestamp(data_dict: Dict, field_name: str = 'carCapturedTimestamp', default_timestamp: Optional[datetime] = None) -> Optional[datetime]:
     """
@@ -182,23 +188,11 @@ class Connector(BaseConnector):
         LOG.debug('Audi connector session created: username=%s spin=%s timeout=%s', self.active_config.get('username'), self.active_config.get('spin'), self.session.timeout)
         LOG_API.debug('Audi API debug logger initialized')
 
-        # Force initial refresh/authentication to ensure we have valid tokens
+        # Refresh tokens - handle missing refresh token gracefully (Audi-specific)
         try:
-            if hasattr(self.session, 'refresh_token') and self.session.refresh_token:
-                LOG.info("Refresh token available, performing initial token refresh")
-                self.session.refresh()
-            else:
-                LOG.info("No refresh token available, forcing initial authentication")
-                # Force authentication by making a test request that will trigger the auth flow
-                # This will establish fresh tokens including a refresh token
-                try:
-                    test_url = 'https://emea.bff.cariad.digital/vehicle/v1/vehicles'
-                    self.session.get(test_url)
-                    LOG.info("Initial authentication completed successfully")
-                except Exception as auth_error:
-                    LOG.warning(f"Initial authentication failed: {auth_error}, will retry during first data fetch")
+            self.session.refresh()
         except Exception as e:
-            LOG.warning(f"Initial token refresh/authentication failed, continuing: {e}")
+            LOG.warning(f"Initial token refresh failed, continuing: {e}")
             # Continue without failing - the session should still work for new requests
 
         self._elapsed: List[timedelta] = []
@@ -1477,10 +1471,17 @@ class Connector(BaseConnector):
                                 vehicle.charging.type._set_value(value=Charging.ChargingType(charging_status['chargeType']),  # pylint: disable=protected-access
                                                                  measured=captured_at)
                             else:
-                                LOG_API.info('Unknown charge type %s', charging_status['chargeType'])
+                                LOG_API.debug('Unknown charge type %s, using UNKNOWN', charging_status['chargeType'])
                                 vehicle.charging.type._set_value(Charging.ChargingType.UNKNOWN, measured=captured_at)  # pylint: disable=protected-access
                         else:
                             vehicle.charging.type._set_value(None, measured=captured_at)  # pylint: disable=protected-access
+                        
+                        # Handle chargeMode (new field from API)
+                        if 'chargeMode' in charging_status and charging_status['chargeMode'] is not None:
+                            charge_mode = charging_status['chargeMode']
+                            LOG_API.debug('Found chargeMode: %s', charge_mode)
+                            # You could store this in a custom attribute if needed
+                            # For now, we just log it for debugging
                         if 'chargePower_kW' in charging_status and charging_status['chargePower_kW'] is not None:
                             vehicle.charging.power._set_value(value=charging_status['chargePower_kW'],  # pylint: disable=protected-access
                                                               measured=captured_at, unit=Power.KW)
@@ -1501,7 +1502,8 @@ class Connector(BaseConnector):
                             vehicle.charging.estimated_date_reached._set_value(None, measured=captured_at)  # pylint: disable=protected-access
                         log_extra_keys(LOG_API, 'chargingStatus', charging_status, {'chargingStatus', 'carCapturedTimestamp',
                                                                                     'chargingState', 'chargePower_kW',
-                                                                                    'chargeRate_kmph', 'remainingChargingTimeToComplete_min'})
+                                                                                    'chargeRate_kmph', 'remainingChargingTimeToComplete_min',
+                                                                                    'chargeType', 'chargeMode'})
                 if 'chargingSettings' in data['charging'] and data['charging']['chargingSettings'] is not None:
                     if 'value' in data['charging']['chargingSettings'] and data['charging']['chargingSettings']['value'] is not None:
                         charging_settings = data['charging']['chargingSettings']['value']
@@ -1607,18 +1609,38 @@ class Connector(BaseConnector):
                         else:
                             vehicle.charging.connector.lock_state._set_value(None)  # pylint: disable=protected-access
                         if 'externalPower' in plug_status and plug_status['externalPower'] is not None:
-                            if plug_status['externalPower'] in [item.value for item in ChargingConnector.ExternalPower]:
-                                external_power: ChargingConnector.ExternalPower = \
-                                    ChargingConnector.ExternalPower(plug_status['externalPower'])
+                            # Map new API values to existing enum values
+                            external_power_mapping = {
+                                'ready': ChargingConnector.ExternalPower.AVAILABLE,
+                                'active': ChargingConnector.ExternalPower.ACTIVE,
+                                'available': ChargingConnector.ExternalPower.AVAILABLE,
+                                'unavailable': ChargingConnector.ExternalPower.UNAVAILABLE,
+                                'invalid': ChargingConnector.ExternalPower.INVALID,
+                                'unsupported': ChargingConnector.ExternalPower.UNSUPPORTED,
+                            }
+                            
+                            api_value = plug_status['externalPower']
+                            if api_value in external_power_mapping:
+                                external_power = external_power_mapping[api_value]
+                            elif api_value in [item.value for item in ChargingConnector.ExternalPower]:
+                                external_power = ChargingConnector.ExternalPower(api_value)
                             else:
-                                LOG_API.info('Unknown external power %s not in %s', plug_status['externalPower'],
+                                LOG_API.debug('Unknown external power %s not in %s, using UNKNOWN', api_value,
                                              str(ChargingConnector.ExternalPower))
                                 external_power = ChargingConnector.ExternalPower.UNKNOWN
                             vehicle.charging.connector.external_power._set_value(value=external_power,  # pylint: disable=protected-access
                                                                                  measured=captured_at)
                         else:
                             vehicle.charging.connector.external_power._set_value(None)  # pylint: disable=protected-access
-                        log_extra_keys(LOG_API, 'plugStatus', plug_status, {'carCapturedTimestamp', 'plugConnectionState', 'plugLockState', 'externalPower'})
+                        
+                        # Handle ledColor (new field from API)
+                        if 'ledColor' in plug_status and plug_status['ledColor'] is not None:
+                            led_color = plug_status['ledColor']
+                            LOG_API.debug('Found LED color: %s', led_color)
+                            # Store LED color information for future use
+                            # This could be stored in a custom attribute if needed in the future
+                        
+                        log_extra_keys(LOG_API, 'plugStatus', plug_status, {'carCapturedTimestamp', 'plugConnectionState', 'plugLockState', 'externalPower', 'ledColor'})
             if 'vehicleHealthInspection' in data and data['vehicleHealthInspection'] is not None:
                 if 'maintenanceStatus' in data['vehicleHealthInspection'] and data['vehicleHealthInspection']['maintenanceStatus'] is not None:
                     if 'value' in data['vehicleHealthInspection']['maintenanceStatus'] \
@@ -1684,7 +1706,7 @@ class Connector(BaseConnector):
                             log_extra_keys(LOG_API, 'connectionState', readiness_status['connectionState'], {'isOnline', 'isActive'})
                         log_extra_keys(LOG_API, 'readinessStatus', readiness_status, {'connectionState'})
             log_extra_keys(LOG_API, 'selectivestatus', data, {'measurements', 'access', 'vehicleLights', 'climatisation', 'vehicleHealthInspection',
-                                                              'charging', 'readiness'})
+                                                              'charging', 'readiness', 'fuelStatus', 'climatisationTimers'})
 
     def _process_vehicle_status_data_lenient(self, vehicle: AudiVehicle, data: Dict[str, Any]) -> None:
         """Process vehicle status data with lenient timestamp handling - log warnings instead of failing"""
