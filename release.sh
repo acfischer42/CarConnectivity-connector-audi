@@ -41,8 +41,37 @@ git tag "v$new_version"
 git push origin "v$new_version"
 
 echo "✅ Tag v$new_version created and pushed!"
-echo "📦 GitHub Actions will now build and publish to PyPI automatically."
-echo "🔗 Check the progress at: https://github.com/acfischer42/CarConnectivity-connector-audi/actions"
-echo ""
-echo "To create a GitHub release with release notes:"
-echo "gh release create v$new_version --generate-notes"
+
+# Check if gh CLI is available
+if ! command -v gh &> /dev/null; then
+    echo "⚠️  GitHub CLI (gh) not found. Please install it with:"
+    echo "   sudo apt install gh"
+    echo "   gh auth login"
+    echo ""
+    echo "To create a GitHub release manually:"
+    echo "   gh release create v$new_version --generate-notes"
+    echo "� Or create it via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
+    exit 0
+fi
+
+# Check if gh is authenticated
+if ! gh auth status &> /dev/null; then
+    echo "⚠️  GitHub CLI not authenticated. Please run:"
+    echo "   gh auth login"
+    echo ""
+    echo "To create a GitHub release manually:"
+    echo "   gh release create v$new_version --generate-notes"
+    exit 0
+fi
+
+# Create GitHub release
+echo "🚀 Creating GitHub release..."
+if gh release create "v$new_version" --generate-notes; then
+    echo "✅ GitHub release v$new_version created successfully!"
+    echo "�📦 GitHub Actions will now build and publish to PyPI automatically."
+    echo "🔗 Check the progress at: https://github.com/acfischer42/CarConnectivity-connector-audi/actions"
+else
+    echo "❌ Failed to create GitHub release. You can create it manually:"
+    echo "   gh release create v$new_version --generate-notes"
+    echo "🔗 Or via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
+fi
