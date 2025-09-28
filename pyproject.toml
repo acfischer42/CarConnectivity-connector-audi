@@ -54,7 +54,6 @@ exclude = ["*.testing*", "*testing*"]
 "" = "src"
 
 [tool.setuptools_scm]
-write_to = "src/carconnectivity_connectors/audi/_version.py"
 
 [tool.pylint.format]
 max-line-length=160

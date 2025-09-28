@@ -8,4 +8,4 @@ __pycache__/
 .pytest_cache/
 src/carconnectivity_connectors/audi/testing/*
 audi_config.json
-src/carconnectivity_connectors/audi/testing/*
+src/carconnectivity_connectors/audi/_version.py
