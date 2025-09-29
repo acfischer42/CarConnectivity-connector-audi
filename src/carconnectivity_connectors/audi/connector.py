@@ -48,6 +48,9 @@ from carconnectivity_connectors.audi._version import __version__
 from carconnectivity_connectors.audi.command_impl import SpinCommand
 from carconnectivity_connectors.audi.charging import AudiCharging, mapping_audi_charging_state
 
+# OAuth2 error imports for better error handling
+from oauthlib.oauth2.rfc6749.errors import MissingTokenError, MissingCodeError, TokenExpiredError
+
 SUPPORT_IMAGES = False
 try:
     from PIL import Image
@@ -240,6 +243,15 @@ class Connector(BaseConnector):
                 LOG.error('Temporary authentification error during update (%s). Will try again after configured interval of %ss', str(err), interval)
                 self.connection_state._set_value(value=ConnectionState.ERROR)  # pylint: disable=protected-access
                 self._stop_event.wait(interval)
+            except (MissingTokenError, MissingCodeError, TokenExpiredError) as err:
+                LOG.error('OAuth authentication error during update (%s). This usually happens in headless environments when tokens expire. Will try again after configured interval of %ss', str(err), interval)
+                self.connection_state._set_value(value=ConnectionState.ERROR)  # pylint: disable=protected-access
+                # Persist current state to try to save any valid tokens
+                try:
+                    self.persist()
+                except Exception as persist_err:
+                    LOG.warning('Failed to persist tokens after OAuth error: %s', str(persist_err))
+                self._stop_event.wait(interval)
             except Exception as err:
                 LOG.critical('Critical error during update: %s', traceback.format_exc())
                 self.healthy._set_value(value=False)  # pylint: disable=protected-access
@@ -247,6 +259,11 @@ class Connector(BaseConnector):
                 raise err
             else:
                 self.connection_state._set_value(value=ConnectionState.CONNECTED)  # pylint: disable=protected-access
+                # Persist tokens after successful update to ensure they're saved
+                try:
+                    self.persist()
+                except Exception as persist_err:
+                    LOG.warning('Failed to persist tokens after successful update: %s', str(persist_err))
                 self._stop_event.wait(interval)
         # When leaving the loop, set the connection state to disconnected
         self.connection_state._set_value(value=ConnectionState.DISCONNECTED)  # pylint: disable=protected-access
