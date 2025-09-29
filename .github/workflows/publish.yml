@@ -13,6 +13,7 @@ jobs:
       url: https://pypi.org/p/CarConnectivity-connector-audi
     permissions:
       id-token: write
+      contents: write  # Required for creating GitHub releases
 
     steps:
       - uses: actions/checkout@v4
@@ -37,5 +38,28 @@ jobs:
         run: |
           python -m build
           ls -la dist/
+          
+      - name: Extract tag version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Installation
+            ```bash
+            pip install carconnectivity-connector-audi==${{ steps.get_version.outputs.VERSION }}
+            ```
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
