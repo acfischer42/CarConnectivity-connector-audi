@@ -118,10 +118,12 @@ class AudiWebSession(OpenIDSession):
         # Get the login form
         email_form: HTMLFormParser = self._get_login_form(url)
         
-        # If we've already reached the redirect URI, return the URL directly
+        # If we've already reached the redirect URI, return the redirect URI with tokens
         if email_form is None:
             LOG.debug("Already at redirect URI, authentication completed")
-            return url
+            # Return the actual redirect URI, not the original URL
+            # The redirect URI is captured in _get_login_form when it returns None
+            return getattr(self, '_last_redirect_uri', url)
 
         # Set email to the provided username
         email_form.data['email'] = self.session_user.username
@@ -425,6 +427,8 @@ class AudiWebSession(OpenIDSession):
                 # For myaudi:// URLs, we need to extract tokens and return success
                 # instead of throwing an error
                 LOG.debug(f'Reached redirect URI: {url}')
+                # Store the redirect URI so do_web_auth can return it
+                self._last_redirect_uri = url
                 return None  # Signal that we've reached the redirect successfully
             
             response = self.websession.get(url, allow_redirects=False)

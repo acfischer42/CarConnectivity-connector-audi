@@ -98,18 +98,36 @@ class WeConnectSession(AudiWebSession):
         LOG.debug(f"Web auth completed, got response: {response[:100]}...")
         
         # Parse tokens directly from the OAuth response
-        self.parse_from_fragment(response)
-        LOG.info("Login successful - tokens obtained from OAuth flow!")
+        try:
+            self.parse_from_fragment(response)
+            LOG.info("Login successful - tokens obtained from OAuth flow!")
+        except Exception as parse_error:
+            LOG.error(f"Failed to parse authentication response: {parse_error}")
+            LOG.debug(f"Response that failed to parse: {response}")
+            raise
         
         # Set the last_login time
         import time
         self.last_login = time.time()
 
     def refresh(self) -> None:
-        # refresh tokens from refresh endpoint
-        self.refresh_tokens(
-            'https://emea.bff.cariad.digital/user-login/refresh/v1',
-        )
+        # Try refresh tokens from refresh endpoint first
+        try:
+            LOG.info('Attempting token refresh from refresh endpoint')
+            self.refresh_tokens(
+                'https://emea.bff.cariad.digital/user-login/refresh/v1',
+            )
+            LOG.info('Token refresh from endpoint successful')
+        except Exception as e:
+            LOG.warning(f'Token refresh from endpoint failed: {e}')
+            LOG.info('Falling back to full re-authentication using working login flow')
+            # Fall back to the same login process that worked initially
+            try:
+                self.login()
+                LOG.info('Fallback re-authentication successful')
+            except Exception as login_error:
+                LOG.error(f'Fallback re-authentication also failed: {login_error}')
+                raise
 
     def authorization_url(self, url, state=None, **kwargs) -> str:
         # Use the same approach as the working VW version
