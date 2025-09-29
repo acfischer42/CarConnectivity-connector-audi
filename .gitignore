@@ -9,3 +9,5 @@ __pycache__/
 src/carconnectivity_connectors/audi/testing/*
 audi_config.json
 src/carconnectivity_connectors/audi/_version.py
+k8s-carconnectivity.yaml
+carconnectivity.yaml

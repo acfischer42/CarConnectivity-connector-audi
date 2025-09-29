@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from oauthlib.common import UNICODE_ASCII_CHARACTER_SET, generate_nonce, generate_token
 from oauthlib.oauth2.rfc6749.parameters import parse_authorization_code_response, parse_token_response, prepare_grant_uri
-from oauthlib.oauth2.rfc6749.errors import InsecureTransportError, TokenExpiredError, MissingTokenError
+from oauthlib.oauth2.rfc6749.errors import InsecureTransportError, TokenExpiredError, MissingTokenError, MissingCodeError
 from oauthlib.oauth2.rfc6749.utils import is_secure_transport
 
 from requests.adapters import HTTPAdapter
@@ -331,16 +331,81 @@ class OpenIDSession(requests.Session):
             dict: The parsed token information.
         """
         state = state or self.state
-        self.token = parse_authorization_code_response(authorization_response, state=state)
-        return self.token
+        
+        # First try to extract tokens from URL fragment or query parameters (implicit flow)
+        try:
+            from urllib.parse import urlparse, parse_qs
+            parsed_url = urlparse(authorization_response)
+            
+            # Try fragment first (original format: myaudi:///#token=...)
+            params_to_parse = None
+            source_type = None
+            if parsed_url.fragment:
+                params_to_parse = parsed_url.fragment
+                source_type = "fragment"
+            elif parsed_url.query and 'access_token' in parsed_url.query:
+                # Then try query parameters (converted format: https://egal?token=...)
+                params_to_parse = parsed_url.query
+                source_type = "query"
+            
+            if params_to_parse:
+                LOG.debug(f"Found {source_type}, parsing implicit flow response")
+                token_params = parse_qs(params_to_parse)
+                
+                # Convert lists to single values (parse_qs returns lists)
+                token_data = {}
+                for key, values in token_params.items():
+                    if values:
+                        token_data[key] = values[0]
+                
+                LOG.debug(f"Extracted token data from {source_type}: {list(token_data.keys())}")
+                
+                # Check if we have the required tokens
+                if 'access_token' in token_data:
+                    # Build proper token structure
+                    self.token = {
+                        'access_token': token_data['access_token'],
+                        'token_type': token_data.get('token_type', 'bearer'),
+                    }
+                    
+                    if 'expires_in' in token_data:
+                        self.token['expires_in'] = int(token_data['expires_in'])
+                        # Add expires_at for proper token expiry checking
+                        import time
+                        self.token['expires_at'] = time.time() + int(token_data['expires_in'])
+                    if 'id_token' in token_data:
+                        self.token['id_token'] = token_data['id_token']
+                    if 'refresh_token' in token_data:
+                        self.token['refresh_token'] = token_data['refresh_token']
+                        
+                    LOG.info(f"Successfully parsed tokens from URL {source_type}! (expires in {token_data.get('expires_in', 'unknown')} seconds)")
+                    return self.token
+                    
+        except Exception as fragment_err:
+            LOG.warning(f'Failed to parse URL parameters: {fragment_err}')
+        
+        # Fallback to original authorization code parsing
+        try:
+            self.token = parse_authorization_code_response(authorization_response, state=state)
+            return self.token
+        except (MissingCodeError, TokenExpiredError, MissingTokenError) as err:
+            LOG.warning('Failed to parse authorization response in headless environment: %s. This may indicate the authentication flow needs to be retried.', str(err))
+            LOG.debug('Authorization response that failed parsing: %s', authorization_response)
+            # Don't set self.token to maintain any existing valid tokens
+            raise AuthenticationError(f'Authentication parsing failed in headless environment: {err}') from err
 
     def parse_from_body(self, token_response, state=None):
         """
             Parse the JSON token response body into a dict.
         """
         del state
-        self.token = parse_token_response(token_response, scope=self.scope)
-        return self.token
+        try:
+            self.token = parse_token_response(token_response, scope=self.scope)
+            return self.token
+        except (MissingCodeError, TokenExpiredError, MissingTokenError) as err:
+            LOG.warning('Failed to parse token response: %s', str(err))
+            LOG.debug('Token response that failed parsing: %s', token_response)
+            raise AuthenticationError(f'Token parsing failed: {err}') from err
 
     def request(  # noqa: C901
         self,
