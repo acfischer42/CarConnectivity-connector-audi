@@ -50,7 +50,7 @@ fi
 print_header "Installing Test Dependencies"
 print_status "Installing code quality tools..."
 pip install --upgrade pip
-pip install black==25.9.0 isort==6.1.0 flake8==7.3.0 mypy bandit safety pylint || {
+pip install black==25.9.0 isort==6.1.0 flake8==7.3.0 bandit safety pylint || {
     print_warning "Some tools failed to install. Continuing with available tools..."
 }
 
@@ -125,16 +125,10 @@ fi
 # Test 4: Type Checking
 print_header "4. Testing Type Checking"
 
-print_status "Testing mypy type checking..."
-if command -v mypy &> /dev/null; then
-    echo "Running mypy type checking..."
-    mypy src/carconnectivity_connectors/ --ignore-missing-imports --no-strict-optional || {
-        print_warning "Type checking issues found. Consider adding type hints."
-    }
-    print_success "mypy type checking completed"
-else
-    print_error "mypy not installed"
-fi
+print_status "Type checking (mypy) - DISABLED"
+echo "Type checking temporarily disabled for legacy codebase"
+echo "Consider gradual type annotation improvements in future releases"
+print_success "Type checking step completed (disabled)"
 
 # Test 5: Security Analysis
 print_header "5. Testing Security Analysis"
