@@ -150,6 +150,7 @@ fi
 print_status "Testing dependency vulnerability scan..."
 if command -v safety &> /dev/null; then
     echo "Running safety dependency scan..."
+    # Note: For full functionality, set SAFETY_API_KEY environment variable
     # Use the new scan command instead of deprecated check command
     safety scan || {
         print_warning "Vulnerable dependencies found. Review and update."

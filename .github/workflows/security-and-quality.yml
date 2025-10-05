@@ -51,7 +51,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8==7.3.0 black==25.9.0 isort==6.1.0 bandit safety pylint
+          pip install flake8==7.3.0 black==25.9.0 isort==6.1.0 bandit pylint
+          # Safety is handled by the official Safety Action
           pip install -e .
 
       - name: Code formatting check (Black)
@@ -81,10 +82,12 @@ jobs:
           bandit -r src/ -f json -o bandit-report.json --configfile pyproject.toml || true
           bandit -r src/ -f txt --configfile pyproject.toml
 
-      - name: Dependency vulnerability check (safety)
-        run: |
-          safety scan --json --output safety-report.json || true
-          safety scan
+      - name: Dependency vulnerability check (Safety CLI)
+        uses: pyupio/safety-action@v1
+        with:
+          api-key: ${{ secrets.SAFETY_API_KEY }}
+          # Set to false to fail the build on vulnerabilities, or true to continue
+          continue-on-error: false
 
       - name: Alternative dependency audit (pip-audit)
         run: |
@@ -99,8 +102,8 @@ jobs:
           name: security-reports-py${{ matrix.python-version }}
           path: |
             bandit-report.json
-            safety-report.json
             pip-audit-report.json
+          # Note: Safety reports are handled by the Safety Action
 
   dependency-review:
     name: Dependency Review
