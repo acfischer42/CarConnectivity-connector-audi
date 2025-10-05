@@ -1,4 +1,5 @@
 """Module implements the connector to interact with the Audi API."""
+
 from __future__ import annotations
 
 import json
@@ -2846,9 +2847,9 @@ class Connector(BaseConnector):
                 vehicle.climatization.settings.climatization_without_external_power is not None
                 and vehicle.climatization.settings.climatization_without_external_power.enabled
             ):
-                command_dict[
-                    "climatisationWithoutExternalPower"
-                ] = vehicle.climatization.settings.climatization_without_external_power.value
+                command_dict["climatisationWithoutExternalPower"] = (
+                    vehicle.climatization.settings.climatization_without_external_power.value
+                )
             if (
                 vehicle.climatization.settings.window_heating is not None
                 and vehicle.climatization.settings.window_heating.enabled

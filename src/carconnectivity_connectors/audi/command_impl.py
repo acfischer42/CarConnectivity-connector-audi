@@ -1,4 +1,5 @@
 """This module defines the classes that represent attributes in the CarConnectivity system."""
+
 from __future__ import annotations
 
 import argparse

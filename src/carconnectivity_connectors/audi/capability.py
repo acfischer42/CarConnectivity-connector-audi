@@ -1,4 +1,5 @@
 """Module for Audi vehicle capability class."""
+
 from __future__ import annotations
 
 from enum import IntEnum

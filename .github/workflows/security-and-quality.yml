@@ -31,8 +31,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          config-path: .gitleaks.toml
 
   code-quality:
     name: Code Quality Analysis
@@ -53,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black isort mypy bandit safety pylint
+          pip install flake8 black==25.9.0 isort mypy bandit safety pylint
           pip install -e .
 
       - name: Code formatting check (Black)

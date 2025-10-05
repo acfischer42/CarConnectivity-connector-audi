@@ -1,6 +1,7 @@
 """
 Module for charging for Audi vehicles.
 """
+
 from __future__ import annotations
 
 from enum import Enum

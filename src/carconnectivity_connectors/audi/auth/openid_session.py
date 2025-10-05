@@ -1,4 +1,5 @@
 """Implements a session class that handles OpenID authentication."""
+
 from __future__ import annotations
 
 import logging

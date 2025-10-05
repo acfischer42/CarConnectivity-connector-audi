@@ -1,4 +1,5 @@
-""" User interface for the Audi connector in the Car Connectivity application. """
+"""User interface for the Audi connector in the Car Connectivity application."""
+
 from __future__ import annotations
 
 import os

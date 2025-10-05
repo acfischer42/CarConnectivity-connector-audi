@@ -2,6 +2,7 @@
 This module provides utility functions and classes for handling authentication and parsing HTML forms
 and scripts for the Audi car connectivity connector.
 """
+
 from __future__ import annotations
 
 import json

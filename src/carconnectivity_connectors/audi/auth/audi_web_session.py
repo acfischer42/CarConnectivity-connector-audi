@@ -1,6 +1,7 @@
 """
 Module implements an Audi Web session with dual-token authentication.
 """
+
 from __future__ import annotations
 
 import logging

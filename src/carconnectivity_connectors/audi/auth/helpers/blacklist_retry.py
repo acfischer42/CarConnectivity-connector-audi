@@ -1,4 +1,5 @@
 """Implements a custom Retry class that allows for blacklisting certain status codes that will not retry."""
+
 from urllib3.util.retry import Retry
 
 

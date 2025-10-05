@@ -1,4 +1,5 @@
 """Module implementing the SessionManager class."""
+
 from __future__ import annotations
 
 import hashlib

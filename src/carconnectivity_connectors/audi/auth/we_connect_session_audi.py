@@ -1,6 +1,7 @@
 """
 Module implements the WeConnect Session handling.
 """
+
 from __future__ import annotations
 
 import json
