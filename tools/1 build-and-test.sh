@@ -111,7 +111,7 @@ except Exception as e:
 print()
 print('=== PACKAGE BUILD AND TEST SUMMARY ===')
 print('✓ Package built successfully')
-print('✓ Package installed in test environment') 
+print('✓ Package installed in test environment')
 print('✓ All core imports work correctly')
 print('✓ Connector class is properly accessible')
 print('✓ Version information is available')
@@ -129,7 +129,7 @@ fi
 print_status "Step 7: Checking configuration..."
 if [ -f "audi_config.json" ]; then
     print_success "Configuration file found: audi_config.json"
-    
+
     # Check if config has valid structure
     if command -v jq &> /dev/null; then
         if jq empty audi_config.json 2>/dev/null; then

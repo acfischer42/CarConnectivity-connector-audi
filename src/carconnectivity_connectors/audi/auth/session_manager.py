@@ -1,23 +1,22 @@
 """Module implementing the SessionManager class."""
 from __future__ import annotations
-from typing import TYPE_CHECKING, Tuple
-
-from enum import Enum
 
 import hashlib
-
 import logging
+from enum import Enum
+from typing import TYPE_CHECKING, Tuple
 
 from carconnectivity_connectors.audi.auth.we_connect_session_audi import WeConnectSession
 
 if TYPE_CHECKING:
-    from typing import Dict, Any
-    from carconnectivity_connectors.audi.auth.audi_web_session import AudiWebSession
+    from typing import Any, Dict
+
+from carconnectivity_connectors.audi.auth.audi_web_session import AudiWebSession
 
 LOG = logging.getLogger("carconnectivity.connectors.audi.auth")
 
 
-class SessionUser():
+class SessionUser:
     """
     A class to represent a session user with a username and password.
 
@@ -33,12 +32,13 @@ class SessionUser():
     __str__():
         Returns a string representation of the session user in the format 'username:password'.
     """
+
     def __init__(self, username: str, password: str) -> None:
         self.username: str = username
         self.password: str = password
 
     def __str__(self) -> str:
-        return f'{self.username}:{self.password}'
+        return f"{self.username}:{self.password}"
 
 
 class Service(Enum):
@@ -51,20 +51,22 @@ class Service(Enum):
     Methods:
         __str__() -> str: Returns the string representation of the service.
     """
-    WE_CONNECT = 'WeConnect'
+
+    WE_CONNECT = "WeConnect"
 
     def __str__(self) -> str:
         return self.value
 
 
-class SessionManager():
+class SessionManager:
     """
     Manages sessions for different services and users, handling token storage and caching.
     """
-    def __init__(self, tokenstore: Dict[str, Any], cache:  Dict[str, Any]) -> None:
+
+    def __init__(self, tokenstore: Dict[str, Any], cache: Dict[str, Any]) -> None:
         self.tokenstore: Dict[str, Any] = tokenstore
         self.cache: Dict[str, Any] = cache
-        self.sessions: Dict[Tuple[Service, SessionUser], VWWebSession] = {}
+        self.sessions: Dict[Tuple[Service, SessionUser], AudiWebSession] = {}
 
     @staticmethod
     def generate_hash(service: Service, session_user: SessionUser) -> str:
@@ -93,9 +95,9 @@ class SessionManager():
         Returns:
             str: A unique identifier string.
         """
-        return 'CarConnectivity-connector-Audi:' + SessionManager.generate_hash(service, session_user)
+        return "CarConnectivity-connector-Audi:" + SessionManager.generate_hash(service, session_user)
 
-    def get_session(self, service: Service, session_user: SessionUser) -> VWWebSession:
+    def get_session(self, service: Service, session_user: SessionUser) -> AudiWebSession:
         """
         Retrieves a session for the given service and session user. If a session already exists in the sessions cache,
         it is returned. Otherwise, a new session is created using the token, metadata, and cache from the tokenstore
@@ -118,11 +120,11 @@ class SessionManager():
         metadata = {}
 
         if identifier in self.tokenstore:
-            if 'token' in self.tokenstore[identifier]:
-                LOG.info('Reusing tokens from previous session')
-                token = self.tokenstore[identifier]['token']
-            if 'metadata' in self.tokenstore[identifier]:
-                metadata = self.tokenstore[identifier]['metadata']
+            if "token" in self.tokenstore[identifier]:
+                LOG.info("Reusing tokens from previous session")
+                token = self.tokenstore[identifier]["token"]
+            if "metadata" in self.tokenstore[identifier]:
+                metadata = self.tokenstore[identifier]["metadata"]
         if identifier in self.cache:
             cache = self.cache[identifier]
 
@@ -145,6 +147,6 @@ class SessionManager():
         for (service, user), session in self.sessions.items():
             identifier: str = SessionManager.generate_identifier(service, user)
             self.tokenstore[identifier] = {}
-            self.tokenstore[identifier]['token'] = session.token
-            self.tokenstore[identifier]['metadata'] = session.metadata
+            self.tokenstore[identifier]["token"] = session.token
+            self.tokenstore[identifier]["metadata"] = session.metadata
             self.cache[identifier] = session.cache

@@ -23,7 +23,7 @@ Use the provided release script:
 
 This will:
 - Check that you're on the main branch
-- Verify working directory is clean  
+- Verify working directory is clean
 - Prompt for the new version number
 - Create and push a git tag
 - Trigger the automated build and publish pipeline
@@ -50,7 +50,7 @@ gh release create v0.1.2 --generate-notes
 
 When you push a version tag (e.g., `v0.1.2`), GitHub Actions will:
 
-1. **Build Package**: 
+1. **Build Package**:
    - Set up Python environment
    - Install build dependencies
    - Build source distribution and wheel
@@ -106,7 +106,7 @@ Monitor the release process:
 - Cannot republish same version to PyPI
 - Use `git tag -d v0.1.2` to delete local tag if needed
 
-### Build Failures  
+### Build Failures
 - Check Python version compatibility
 - Verify all dependencies are available
 - Review test-build.yml workflow for errors

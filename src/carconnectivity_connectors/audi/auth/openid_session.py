@@ -1,22 +1,20 @@
 """Implements a session class that handles OpenID authentication."""
 from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from enum import Enum, auto
-import time
-import logging
-import requests
 import jwt
-from datetime import datetime, timezone
-
-from oauthlib.common import UNICODE_ASCII_CHARACTER_SET, generate_nonce, generate_token
-from oauthlib.oauth2.rfc6749.parameters import parse_authorization_code_response, parse_token_response, prepare_grant_uri
-from oauthlib.oauth2.rfc6749.errors import InsecureTransportError, TokenExpiredError, MissingTokenError, MissingCodeError
-from oauthlib.oauth2.rfc6749.utils import is_secure_transport
-
-from requests.adapters import HTTPAdapter
-
+import requests
 from carconnectivity.errors import AuthenticationError, RetrievalError
+from oauthlib.common import UNICODE_ASCII_CHARACTER_SET, generate_nonce, generate_token
+from oauthlib.oauth2.rfc6749.errors import InsecureTransportError, MissingCodeError, MissingTokenError, TokenExpiredError
+from oauthlib.oauth2.rfc6749.parameters import parse_authorization_code_response, parse_token_response, prepare_grant_uri
+from oauthlib.oauth2.rfc6749.utils import is_secure_transport
+from requests.adapters import HTTPAdapter
 
 from carconnectivity_connectors.audi.auth.auth_util import add_bearer_auth_header
 from carconnectivity_connectors.audi.auth.helpers.blacklist_retry import BlacklistRetry
@@ -37,6 +35,7 @@ class AccessType(Enum):
         ID (auto): ID token used for identifying the user.
         REFRESH (auto): Refresh token used for obtaining new access tokens.
     """
+
     NONE = auto()
     ACCESS = auto()
     ID = auto()
@@ -47,8 +46,20 @@ class OpenIDSession(requests.Session):
     """
     OpenIDSession is a subclass of requests.Session that handles OpenID Connect authentication.
     """
-    def __init__(self, client_id=None, redirect_uri=None, refresh_url=None, scope=None, token=None, metadata=None, state=None, timeout=None,
-                 force_relogin_after=None, **kwargs) -> None:
+
+    def __init__(
+        self,
+        client_id=None,
+        redirect_uri=None,
+        refresh_url=None,
+        scope=None,
+        token=None,
+        metadata=None,
+        state=None,
+        timeout=None,
+        force_relogin_after=None,
+        **kwargs,
+    ) -> None:
         super(OpenIDSession, self).__init__(**kwargs)
         self.client_id = client_id
         self.redirect_uri = redirect_uri
@@ -112,12 +123,14 @@ class OpenIDSession(requests.Session):
         self._retries = new_retries_value
         if new_retries_value:
             # Retry on internal server error (500)
-            retries = BlacklistRetry(total=new_retries_value,
-                                     backoff_factor=0.1,
-                                     status_forcelist=[500],
-                                     status_blacklist=[429],
-                                     raise_on_status=False)
-            self.mount('https://', HTTPAdapter(max_retries=retries))
+            retries = BlacklistRetry(
+                total=new_retries_value,
+                backoff_factor=0.1,
+                status_forcelist=[500],
+                status_blacklist=[429],
+                raise_on_status=False,
+            )
+            self.mount("https://", HTTPAdapter(max_retries=retries))
 
     @property
     def token(self):
@@ -145,23 +158,23 @@ class OpenIDSession(requests.Session):
         """
         if new_token is not None:
             # If new token e.g. after refresh is missing expires_in we assume it is the same than before
-            if 'expires_in' not in new_token:
-                if self._token is not None and 'expires_in' in self._token:
-                    new_token['expires_in'] = self._token['expires_in']
+            if "expires_in" not in new_token:
+                if self._token is not None and "expires_in" in self._token:
+                    new_token["expires_in"] = self._token["expires_in"]
                 else:
-                    if 'id_token' in new_token:
-                        meta_data = jwt.decode(new_token['id_token'], options={"verify_signature": False})
-                        if 'exp' in meta_data:
-                            new_token['expires_at'] = meta_data['exp']
-                            expires_at = datetime.fromtimestamp(meta_data['exp'], tz=timezone.utc)
-                            new_token['expires_in'] = (expires_at - datetime.now(tz=timezone.utc)).total_seconds()
+                    if "id_token" in new_token:
+                        meta_data = jwt.decode(new_token["id_token"], options={"verify_signature": False})
+                        if "exp" in meta_data:
+                            new_token["expires_at"] = meta_data["exp"]
+                            expires_at = datetime.fromtimestamp(meta_data["exp"], tz=timezone.utc)
+                            new_token["expires_in"] = (expires_at - datetime.now(tz=timezone.utc)).total_seconds()
                         else:
-                            new_token['expires_in'] = 3600
+                            new_token["expires_in"] = 3600
                     else:
-                        new_token['expires_in'] = 3600
+                        new_token["expires_in"] = 3600
             # If expires_in is set and expires_at is not set we calculate expires_at from expires_in using the current time
-            if 'expires_in' in new_token and 'expires_at' not in new_token:
-                new_token['expires_at'] = time.time() + int(new_token.get('expires_in'))
+            if "expires_in" in new_token and "expires_at" not in new_token:
+                new_token["expires_at"] = time.time() + int(new_token.get("expires_in"))
         self._token = new_token
 
     @property
@@ -172,8 +185,8 @@ class OpenIDSession(requests.Session):
         Returns:
             str: The access token if it exists in the stored token, otherwise None.
         """
-        if self._token is not None and 'access_token' in self._token:
-            return self._token.get('access_token')
+        if self._token is not None and "access_token" in self._token:
+            return self._token.get("access_token")
         return None
 
     @access_token.setter
@@ -186,7 +199,7 @@ class OpenIDSession(requests.Session):
         """
         if self._token is None:
             self._token = {}
-        self._token['access_token'] = new_access_token
+        self._token["access_token"] = new_access_token
 
     @property
     def refresh_token(self):
@@ -196,8 +209,8 @@ class OpenIDSession(requests.Session):
         Returns:
             str or None: The refresh token if it exists in the stored token, otherwise None.
         """
-        if self._token is not None and 'refresh_token' in self._token:
-            return self._token.get('refresh_token')
+        if self._token is not None and "refresh_token" in self._token:
+            return self._token.get("refresh_token")
         return None
 
     @property
@@ -208,8 +221,8 @@ class OpenIDSession(requests.Session):
         Returns:
             str or None: The ID token if it exists in the stored token, otherwise None.
         """
-        if self._token is not None and 'id_token' in self._token:
-            return self._token.get('id_token')
+        if self._token is not None and "id_token" in self._token:
+            return self._token.get("id_token")
         return None
 
     @property
@@ -220,8 +233,8 @@ class OpenIDSession(requests.Session):
         Returns:
             str: The type of the token if available, otherwise None.
         """
-        if self._token is not None and 'token_type' in self._token:
-            return self._token.get('token_type')
+        if self._token is not None and "token_type" in self._token:
+            return self._token.get("token_type")
         return None
 
     @property
@@ -233,8 +246,8 @@ class OpenIDSession(requests.Session):
             int or None: The number of seconds until the token expires if available,
                          otherwise None.
         """
-        if self._token is not None and 'expires_in' in self._token:
-            return self._token.get('expires_in')
+        if self._token is not None and "expires_in" in self._token:
+            return self._token.get("expires_in")
         return None
 
     @property
@@ -246,8 +259,8 @@ class OpenIDSession(requests.Session):
             int or None: The expiration time of the token in epoch time if available,
                          otherwise None.
         """
-        if self._token is not None and 'expires_at' in self._token:
-            return self._token.get('expires_at')
+        if self._token is not None and "expires_at" in self._token:
+            return self._token.get("expires_at")
         return None
 
     @property
@@ -275,8 +288,8 @@ class OpenIDSession(requests.Session):
         """
         Retrieve the user ID from the metadata.
         """
-        if 'userId' in self.metadata:
-            return self.metadata['userId']
+        if "userId" in self.metadata:
+            return self.metadata["userId"]
         return None
 
     @user_id.setter
@@ -284,7 +297,7 @@ class OpenIDSession(requests.Session):
         """
         Sets the user ID in the metadata.
         """
-        self.metadata['userId'] = new_user_id
+        self.metadata["userId"] = new_user_id
 
     def login(self):
         """
@@ -308,15 +321,24 @@ class OpenIDSession(requests.Session):
 
         Args:
             url (str): The base URL for the authorization endpoint.
-            state (str, optional): An optional state parameter to maintain state between the request and callback. Defaults to None.
+            state (str, optional): An optional state parameter to maintain state between the request and callback.
+                Defaults to None.
             **kwargs: Additional parameters to include in the authorization URL.
 
         Returns:
             str: The complete authorization URL with the necessary query parameters.
         """
         state = state or self.state
-        auth_url = prepare_grant_uri(uri=url, client_id=self.client_id, redirect_uri=self.redirect_uri, response_type='code id_token token', scope=self.scope,
-                                     state=state, nonce=generate_nonce(), **kwargs)
+        auth_url = prepare_grant_uri(
+            uri=url,
+            client_id=self.client_id,
+            redirect_uri=self.redirect_uri,
+            response_type="code id_token token",
+            scope=self.scope,
+            state=state,
+            nonce=generate_nonce(),
+            **kwargs,
+        )
         return auth_url
 
     def parse_from_fragment(self, authorization_response, state=None):
@@ -331,81 +353,90 @@ class OpenIDSession(requests.Session):
             dict: The parsed token information.
         """
         state = state or self.state
-        
+
         # First try to extract tokens from URL fragment or query parameters (implicit flow)
         try:
-            from urllib.parse import urlparse, parse_qs
+            from urllib.parse import parse_qs, urlparse
+
             parsed_url = urlparse(authorization_response)
-            
+
             # Try fragment first (original format: myaudi:///#token=...)
             params_to_parse = None
             source_type = None
             if parsed_url.fragment:
                 params_to_parse = parsed_url.fragment
                 source_type = "fragment"
-            elif parsed_url.query and 'access_token' in parsed_url.query:
+            elif parsed_url.query and "access_token" in parsed_url.query:
                 # Then try query parameters (converted format: https://egal?token=...)
                 params_to_parse = parsed_url.query
                 source_type = "query"
-            
+
             if params_to_parse:
                 LOG.debug(f"Found {source_type}, parsing implicit flow response")
                 token_params = parse_qs(params_to_parse)
-                
+
                 # Convert lists to single values (parse_qs returns lists)
                 token_data = {}
                 for key, values in token_params.items():
                     if values:
                         token_data[key] = values[0]
-                
+
                 LOG.debug(f"Extracted token data from {source_type}: {list(token_data.keys())}")
-                
+
                 # Check if we have the required tokens
-                if 'access_token' in token_data:
+                if "access_token" in token_data:
                     # Build proper token structure
                     self.token = {
-                        'access_token': token_data['access_token'],
-                        'token_type': token_data.get('token_type', 'bearer'),
+                        "access_token": token_data["access_token"],
+                        "token_type": token_data.get("token_type", "bearer"),
                     }
-                    
-                    if 'expires_in' in token_data:
-                        self.token['expires_in'] = int(token_data['expires_in'])
+
+                    if "expires_in" in token_data:
+                        self.token["expires_in"] = int(token_data["expires_in"])
                         # Add expires_at for proper token expiry checking
                         import time
-                        self.token['expires_at'] = time.time() + int(token_data['expires_in'])
-                    if 'id_token' in token_data:
-                        self.token['id_token'] = token_data['id_token']
-                    if 'refresh_token' in token_data:
-                        self.token['refresh_token'] = token_data['refresh_token']
-                        
-                    LOG.info(f"Successfully parsed tokens from URL {source_type}! (expires in {token_data.get('expires_in', 'unknown')} seconds)")
+
+                        self.token["expires_at"] = time.time() + int(token_data["expires_in"])
+                    if "id_token" in token_data:
+                        self.token["id_token"] = token_data["id_token"]
+                    if "refresh_token" in token_data:
+                        self.token["refresh_token"] = token_data["refresh_token"]
+
+                    LOG.info(
+                        f"Successfully parsed tokens from URL {source_type}! "
+                        f"(expires in {token_data.get('expires_in', 'unknown')} seconds)"
+                    )
                     return self.token
-                    
+
         except Exception as fragment_err:
-            LOG.warning(f'Failed to parse URL parameters: {fragment_err}')
-        
+            LOG.warning(f"Failed to parse URL parameters: {fragment_err}")
+
         # Fallback to original authorization code parsing
         try:
             self.token = parse_authorization_code_response(authorization_response, state=state)
             return self.token
         except (MissingCodeError, TokenExpiredError, MissingTokenError) as err:
-            LOG.warning('Failed to parse authorization response in headless environment: %s. This may indicate the authentication flow needs to be retried.', str(err))
-            LOG.debug('Authorization response that failed parsing: %s', authorization_response)
+            LOG.warning(
+                "Failed to parse authorization response in headless environment: %s. "
+                "This may indicate the authentication flow needs to be retried.",
+                str(err),
+            )
+            LOG.debug("Authorization response that failed parsing: %s", authorization_response)
             # Don't set self.token to maintain any existing valid tokens
-            raise AuthenticationError(f'Authentication parsing failed in headless environment: {err}') from err
+            raise AuthenticationError(f"Authentication parsing failed in headless environment: {err}") from err
 
     def parse_from_body(self, token_response, state=None):
         """
-            Parse the JSON token response body into a dict.
+        Parse the JSON token response body into a dict.
         """
         del state
         try:
             self.token = parse_token_response(token_response, scope=self.scope)
             return self.token
         except (MissingCodeError, TokenExpiredError, MissingTokenError) as err:
-            LOG.warning('Failed to parse token response: %s', str(err))
-            LOG.debug('Token response that failed parsing: %s', token_response)
-            raise AuthenticationError(f'Token parsing failed: {err}') from err
+            LOG.warning("Failed to parse token response: %s", str(err))
+            LOG.debug("Token response that failed parsing: %s", token_response)
+            raise AuthenticationError(f"Token parsing failed: {err}") from err
 
     def request(  # noqa: C901
         self,
@@ -417,20 +448,24 @@ class OpenIDSession(requests.Session):
         withhold_token=False,
         access_type=AccessType.ACCESS,
         token=None,
-        **kwargs
+        **kwargs,
     ) -> requests.Response:
         """Intercept all requests and add the OAuth 2 token if present."""
         if not is_secure_transport(url):
             raise InsecureTransportError()
         if access_type != AccessType.NONE and not withhold_token:
-            if self.force_relogin_after is not None and self.last_login is not None and (self.last_login + self.force_relogin_after) < time.time():
+            if (
+                self.force_relogin_after is not None
+                and self.last_login is not None
+                and (self.last_login + self.force_relogin_after) < time.time()
+            ):
                 LOG.debug("Forced new login after %ds", self.force_relogin_after)
                 self.login()
             try:
                 url, headers, data = self.add_token(url, body=data, headers=headers, access_type=access_type, token=token)
             # Attempt to retrieve and save new access token if expired
             except TokenExpiredError:
-                LOG.info('Token expired')
+                LOG.info("Token expired")
                 self.access_token = None
                 try:
                     self.refresh()
@@ -441,22 +476,25 @@ class OpenIDSession(requests.Session):
                 except MissingTokenError:
                     self.login()
                 except RetrievalError:
-                    LOG.error('Retrieval Error while refreshing token. Probably the token was invalidated. Trying to do a new login instead.')
+                    LOG.error(
+                        "Retrieval Error while refreshing token. Probably the token was invalidated. "
+                        "Trying to do a new login instead."
+                    )
                     self.login()
                 url, headers, data = self.add_token(url, body=data, headers=headers, access_type=access_type, token=token)
             except MissingTokenError:
-                LOG.info('Missing token, need new login')
+                LOG.info("Missing token, need new login")
                 self.login()
                 url, headers, data = self.add_token(url, body=data, headers=headers, access_type=access_type, token=token)
 
         if timeout is None:
             timeout = self.timeout
 
-        return super(OpenIDSession, self).request(
-            method, url, headers=headers, data=data, timeout=timeout, **kwargs
-        )
+        return super(OpenIDSession, self).request(method, url, headers=headers, data=data, timeout=timeout, **kwargs)
 
-    def add_token(self, uri, body=None, headers=None, access_type=AccessType.ACCESS, token=None, **_):  # pylint: disable=too-many-arguments
+    def add_token(
+        self, uri, body=None, headers=None, access_type=AccessType.ACCESS, token=None, **_
+    ):  # pylint: disable=too-many-arguments
         """
         Adds an authorization token to the request headers based on the specified access type.
 
@@ -465,7 +503,8 @@ class OpenIDSession(requests.Session):
             body (Optional[Any]): The body of the request. Defaults to None.
             headers (Optional[Dict[str, str]]): The headers of the request. Defaults to None.
             access_type (AccessType): The type of access token to use (ID, REFRESH, or ACCESS). Defaults to AccessType.ACCESS.
-            token (Optional[str]): The token to use. If None, the method will use the appropriate token based on the access_type. Defaults to None.
+            token (Optional[str]): The token to use. If None, the method will use the
+            appropriate token based on the access_type. Defaults to None.
             **_ (Any): Additional keyword arguments.
 
         Raises:
@@ -474,7 +513,8 @@ class OpenIDSession(requests.Session):
             TokenExpiredError: If the access token has expired.
 
         Returns:
-            Tuple[str, Dict[str, str], Optional[Any]]: The URI, updated headers with the authorization token, and the body of the request.
+            Tuple[str, Dict[str, str], Optional[Any]]: The URI, updated headers with
+            the authorization token, and the body of the request.
         """
         # Check if the URI uses a secure transport
         if not is_secure_transport(uri):

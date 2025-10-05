@@ -67,5 +67,22 @@ print_status "Expected WebUI port: $DEFAULT_PORT"
 print_success "Starting service (press Ctrl+C to stop)..."
 echo ""
 
+# Open browser to WebUI (give service a moment to start)
+print_status "Opening WebUI in browser at http://localhost:$DEFAULT_PORT (waiting 6 seconds for service to start)"
+(
+    sleep 6  # Give the service more time to start
+    # Try different browser commands based on what's available
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "http://localhost:$DEFAULT_PORT" &>/dev/null &
+    elif command -v firefox &> /dev/null; then
+        firefox "http://localhost:$DEFAULT_PORT" &>/dev/null &
+    elif command -v google-chrome &> /dev/null; then
+        google-chrome "http://localhost:$DEFAULT_PORT" &>/dev/null &
+    elif command -v chromium &> /dev/null; then
+        chromium "http://localhost:$DEFAULT_PORT" &>/dev/null &
+    else
+        print_warning "No browser found. Please manually open http://localhost:$DEFAULT_PORT"
+    fi
+) &
 # Start the service
 carconnectivity-cli audi_config.json

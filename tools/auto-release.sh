@@ -31,7 +31,7 @@ base_version=$(echo "$current_version" | sed 's/\.dev.*//g')
 # Parse version parts
 IFS='.' read -ra VERSION_PARTS <<< "$base_version"
 major=${VERSION_PARTS[0]}
-minor=${VERSION_PARTS[1]}  
+minor=${VERSION_PARTS[1]}
 patch=${VERSION_PARTS[2]}
 
 # Auto-increment patch version

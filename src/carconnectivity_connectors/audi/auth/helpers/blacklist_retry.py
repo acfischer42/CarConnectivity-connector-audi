@@ -6,6 +6,7 @@ class BlacklistRetry(Retry):
     """
     BlacklistRetry class extends the Retry class to include a blacklist of status codes that should not be retried.
     """
+
     def __init__(self, status_blacklist=None, **kwargs) -> None:
         self.status_blacklist = status_blacklist
         super().__init__(**kwargs)

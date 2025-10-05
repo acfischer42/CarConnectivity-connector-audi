@@ -17,7 +17,7 @@ This directory contains automation scripts to help you build, test, and run the 
 - Validates configuration files
 - Provides usage instructions
 
-**When to use**: 
+**When to use**:
 - First time setup
 - After making code changes
 - When you want a clean rebuild
@@ -151,7 +151,7 @@ CarConnectivity-connector-audi/
 ├── run.sh                     # Quick run script
 ├── audi_config.json           # Your configuration
 ├── test-venv/                 # Test virtual environment
-├── venv/                      # Main virtual environment  
+├── venv/                      # Main virtual environment
 ├── dist/                      # Built packages
 │   ├── *.whl                  # Wheel package
 │   └── *.tar.gz               # Source distribution

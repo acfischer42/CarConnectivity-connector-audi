@@ -1,15 +1,14 @@
 """ User interface for the Audi connector in the Car Connectivity application. """
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 import os
+from typing import TYPE_CHECKING
 
 import flask
-
 from carconnectivity_connectors.base.ui.connector_ui import BaseConnectorUI
 
 if TYPE_CHECKING:
-    from typing import Optional, List, Dict, Union, Literal
+    from typing import Dict, List, Literal, Optional, Union
 
     from carconnectivity_connectors.base.connector import BaseConnector
 
@@ -18,12 +17,17 @@ class ConnectorUI(BaseConnectorUI):
     """
     A user interface class for the Audi connector in the Car Connectivity application.
     """
+
     def __init__(self, connector: BaseConnector):
-        blueprint: Optional[flask.Blueprint] = flask.Blueprint(name=connector.id, import_name='carconnectivity-connector-audi', url_prefix=f'/{connector.id}',
-                                                               template_folder=os.path.dirname(__file__) + '/templates')
+        blueprint: Optional[flask.Blueprint] = flask.Blueprint(
+            name=connector.id,
+            import_name="carconnectivity-connector-audi",
+            url_prefix=f"/{connector.id}",
+            template_folder=os.path.dirname(__file__) + "/templates",
+        )
         super().__init__(connector, blueprint=blueprint)
 
-    def get_nav_items(self) -> List[Dict[Literal['text', 'url', 'sublinks', 'divider'], Union[str, List]]]:
+    def get_nav_items(self) -> List[Dict[Literal["text", "url", "sublinks", "divider"], Union[str, List]]]:
         """
         Generates a list of navigation items for the Audi connector UI.
         """
