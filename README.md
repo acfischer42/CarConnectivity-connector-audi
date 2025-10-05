@@ -37,7 +37,15 @@ For more information about the CarConnectivity framework, visit:
 
 ## Configuration
 
-Create a configuration file (e.g., `audi_config.json`) with your Audi credentials:
+### Quick Start with Template
+
+1. Copy the provided template and customize it with your credentials:
+   ```bash
+   cp audi_config_template.json audi_config.json
+   # Edit audi_config.json with your actual Audi credentials
+   ```
+
+2. Or create a configuration file manually (e.g., `audi_config.json`) with your Audi credentials:
 
 ```json
 {
@@ -167,8 +175,8 @@ cd CarConnectivity-connector-audi
 
 2. Create a virtual environment:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
 3. Install dependencies:

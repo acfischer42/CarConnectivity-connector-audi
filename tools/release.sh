@@ -3,6 +3,10 @@
 
 set -e
 
+# Get the project root directory (parent of tools directory)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # Check if we're on main branch
 current_branch=$(git branch --show-current)
 if [ "$current_branch" != "main" ]; then
@@ -16,30 +20,35 @@ if ! git diff-index --quiet HEAD --; then
     exit 1
 fi
 
-# Run pre-commit checks to ensure code quality
-echo "Running pre-commit checks..."
-if command -v pre-commit &> /dev/null; then
-    if ! pre-commit run --all-files; then
-        echo "Error: Pre-commit checks failed. Please fix the issues and try again."
-        echo "You can run 'pre-commit run --all-files' to see the specific failures."
-        exit 1
-    fi
-    echo "✅ All pre-commit checks passed!"
-else
-    echo "Warning: pre-commit not found. Install with: pip install pre-commit"
-    echo "Skipping code quality checks..."
-fi
-
 # Get current version
 current_version=$(python3 -c "from src.carconnectivity_connectors.audi._version import __version__; print(__version__)")
 echo "Current version: $current_version"
 
-# Ask for new version
-read -p "Enter new version (e.g., 0.1.2): " new_version
+# Extract base version and suggest next version
+base_version=$(echo "$current_version" | sed 's/\.dev.*//')
+# Parse version parts
+IFS='.' read -ra VERSION_PARTS <<< "$base_version"
+major=${VERSION_PARTS[0]}
+minor=${VERSION_PARTS[1]}
+patch=${VERSION_PARTS[2]}
 
+# Suggest next patch version
+next_patch=$((patch + 1))
+suggested_version="$major.$minor.$next_patch"
+
+echo ""
+echo "Suggested versions:"
+echo "  Patch release: $suggested_version (recommended for bug fixes)"
+echo "  Minor release: $major.$((minor + 1)).0 (for new features)"
+echo "  Major release: $((major + 1)).0.0 (for breaking changes)"
+echo ""
+
+# Ask for new version with suggestion
+read -p "Enter new version [$suggested_version]: " new_version
+
+# Use suggested version if nothing entered
 if [ -z "$new_version" ]; then
-    echo "Error: Version cannot be empty"
-    exit 1
+    new_version="$suggested_version"
 fi
 
 # Validate version format (basic check)

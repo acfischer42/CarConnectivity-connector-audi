@@ -1,17 +1,17 @@
-
 """
 This module provides utility functions and classes for handling authentication and parsing HTML forms
 and scripts for the Audi car connectivity connector.
 """
+
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 import json
 import re
 from html.parser import HTMLParser
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Dict
+    from typing import Dict, Optional
 
 
 def add_bearer_auth_header(token, headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -27,7 +27,7 @@ def add_bearer_auth_header(token, headers: Optional[Dict[str, str]] = None) -> D
         Dict[str, str]: The headers dictionary with the added Authorization header.
     """
     headers = headers or {}
-    headers['Authorization'] = f'Bearer {token}'
+    headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
@@ -35,6 +35,7 @@ class HTMLFormParser(HTMLParser):
     """
     A custom HTML parser to extract form data from HTML content.
     """
+
     def __init__(self, form_id) -> None:
         super().__init__()
         self._form_id = form_id
@@ -49,24 +50,24 @@ class HTMLFormParser(HTMLParser):
         return None
 
     def handle_starttag(self, tag, attrs) -> None:
-        if self._inside_form and tag == 'input':
+        if self._inside_form and tag == "input":
             self.handle_input(attrs)
             return
 
-        if tag == 'form' and self._get_attr(attrs, 'id') == self._form_id:
+        if tag == "form" and self._get_attr(attrs, "id") == self._form_id:
             self._inside_form = True
-            self.target = self._get_attr(attrs, 'action')
+            self.target = self._get_attr(attrs, "action")
 
     def handle_endtag(self, tag) -> None:
-        if tag == 'form' and self._inside_form:
+        if tag == "form" and self._inside_form:
             self._inside_form = False
 
     def handle_input(self, attrs) -> None:
         if not self._inside_form:
             return
 
-        name = self._get_attr(attrs, 'name')
-        value = self._get_attr(attrs, 'value')
+        name = self._get_attr(attrs, "name")
+        value = self._get_attr(attrs, "value")
 
         if name:
             self.data[name] = value
@@ -74,7 +75,7 @@ class HTMLFormParser(HTMLParser):
 
 class ScriptFormParser(HTMLParser):
     fields: list[str] = []
-    targetField: str = ''
+    targetField: str = ""
 
     def __init__(self):
         super().__init__()
@@ -83,18 +84,18 @@ class ScriptFormParser(HTMLParser):
         self.target = None
 
     def handle_starttag(self, tag, attrs) -> None:
-        if not self._inside_script and tag == 'script':
+        if not self._inside_script and tag == "script":
             self._inside_script = True
 
     def handle_endtag(self, tag) -> None:
-        if self._inside_script and tag == 'script':
+        if self._inside_script and tag == "script":
             self._inside_script = False
 
     def handle_data(self, data) -> None:
         if not self._inside_script:
             return
 
-        match: re.Match[str] | None = re.search(r'templateModel: (.*?),\n', data)
+        match: re.Match[str] | None = re.search(r"templateModel: (.*?),\n", data)
         if not match:
             return
 
@@ -102,19 +103,19 @@ class ScriptFormParser(HTMLParser):
         self.target = result.get(self.targetField, None)
         self.data = {k: v for k, v in result.items() if k in self.fields}
 
-        match2 = re.search(r'csrf_token: \'(.*?)\'', data)
+        match2 = re.search(r"csrf_token: \'(.*?)\'", data)
         if match2:
-            self.data['_csrf'] = match2.group(1)
+            self.data["_csrf"] = match2.group(1)
 
 
 class CredentialsFormParser(ScriptFormParser):
-    fields: list[str] = ['relayState', 'hmac', 'registerCredentialsPath', 'error', 'errorCode']
-    targetField: str = 'postAction'
+    fields: list[str] = ["relayState", "hmac", "registerCredentialsPath", "error", "errorCode"]
+    targetField: str = "postAction"
 
 
 class TermsAndConditionsFormParser(ScriptFormParser):
-    fields: list[str] = ['relayState', 'hmac', 'countryOfResidence', 'legalDocuments']
-    targetField: str = 'loginUrl'
+    fields: list[str] = ["relayState", "hmac", "countryOfResidence", "legalDocuments"]
+    targetField: str = "loginUrl"
 
     def handle_data(self, data) -> None:
         if not self._inside_script:
@@ -122,20 +123,20 @@ class TermsAndConditionsFormParser(ScriptFormParser):
 
         super().handle_data(data)
 
-        if 'countryOfResidence' in self.data:
-            self.data['countryOfResidence'] = self.data['countryOfResidence'].upper()
+        if "countryOfResidence" in self.data:
+            self.data["countryOfResidence"] = self.data["countryOfResidence"].upper()
 
-        if 'legalDocuments' not in self.data:
+        if "legalDocuments" not in self.data:
             return
 
-        for key in self.data['legalDocuments'][0]:
+        for key in self.data["legalDocuments"][0]:
             # Skip unnecessary keys
-            if key in ('skipLink', 'declineLink', 'majorVersion', 'minorVersion', 'changeSummary'):
+            if key in ("skipLink", "declineLink", "majorVersion", "minorVersion", "changeSummary"):
                 continue
 
             # Move values under a new key while converting boolean values to 'yes' or 'no'
-            v = self.data['legalDocuments'][0][key]
-            self.data[f'legalDocuments[0].{key}'] = ('yes' if v else 'no') if isinstance(v, bool) else v
+            v = self.data["legalDocuments"][0][key]
+            self.data[f"legalDocuments[0].{key}"] = ("yes" if v else "no") if isinstance(v, bool) else v
 
         # Remove the original object
-        del self.data['legalDocuments']
+        del self.data["legalDocuments"]

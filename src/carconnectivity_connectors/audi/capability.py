@@ -1,14 +1,16 @@
 """Module for Audi vehicle capability class."""
+
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 from enum import IntEnum
+from typing import TYPE_CHECKING
 
+from carconnectivity.attributes import BooleanAttribute, DateAttribute, GenericAttribute, StringAttribute
 from carconnectivity.objects import GenericObject
-from carconnectivity.attributes import StringAttribute, BooleanAttribute, DateAttribute, GenericAttribute
 
 if TYPE_CHECKING:
     from typing import Dict, Optional
+
     from carconnectivity_connectors.audi.vehicle import AudiVehicle
 
 
@@ -16,8 +18,9 @@ class Capabilities(GenericObject):
     """
     Represents the capabilities of an Audi vehicle.
     """
+
     def __init__(self, vehicle: AudiVehicle) -> None:
-        super().__init__(object_id='capabilities', parent=vehicle)
+        super().__init__(object_id="capabilities", parent=vehicle)
         self.__capabilities: Dict[str, Capability] = {}
 
     @property
@@ -104,15 +107,15 @@ class Capability(GenericObject):
 
     def __init__(self, capability_id: str, capabilities: Capabilities) -> None:
         if capabilities is None:
-            raise ValueError('Cannot create capability without capabilities')
-        if id is None:
-            raise ValueError('Capability ID cannot be None')
+            raise ValueError("Cannot create capability without capabilities")
+        if capability_id is None:
+            raise ValueError("Capability ID cannot be None")
         super().__init__(object_id=capability_id, parent=capabilities)
         self.delay_notifications = True
-        self.capability_id = StringAttribute("id", self, capability_id, tags={'connector_custom'})
-        self.expiration_date = DateAttribute("expiration_date", self, tags={'connector_custom'})
-        self.user_disabling_allowed = BooleanAttribute("user_disabling_allowed", self, tags={'connector_custom'})
-        self.status = GenericAttribute("status", self, value=[], tags={'connector_custom'})
+        self.capability_id = StringAttribute("id", self, capability_id, tags={"connector_custom"})
+        self.expiration_date = DateAttribute("expiration_date", self, tags={"connector_custom"})
+        self.user_disabling_allowed = BooleanAttribute("user_disabling_allowed", self, tags={"connector_custom"})
+        self.status = GenericAttribute("status", self, value=[], tags={"connector_custom"})
         self.enabled = True
         self.delay_notifications = False
 
@@ -120,6 +123,7 @@ class Capability(GenericObject):
         """
         Enum for capability status.
         """
+
         UNKNOWN = 0
         DEACTIVATED = 1001
         INITIALLY_DISABLED = 1003

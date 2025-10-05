@@ -1,0 +1,26 @@
+{
+    "carConnectivity": {
+        "log_level": "info",
+        "connectors": [
+            {
+                "type": "audi",
+                "config": {
+                    "interval": 300,
+                    "username": "your.email@example.com",
+                    "password": "your_myaudi_password",
+                    "country": "DE"
+                }
+            }
+        ],
+        "plugins": [
+            {
+                "type": "webui",
+                "config": {
+                    "port": 4000,
+                    "username": "admin",
+                    "password": "secret"
+                }
+            }
+        ]
+    }
+}

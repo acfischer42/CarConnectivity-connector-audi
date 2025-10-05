@@ -1,0 +1,61 @@
+[extend]
+# Extend default GitLeaks rules
+useDefault = true
+
+[[rules]]
+id = "audi-credentials"
+description = "Audi connector credentials"
+regex = '''(?i)(username|password|spin)["'\s]*[:=]\s*["']([^"'\s]+)'''
+tags = ["audi", "credentials"]
+
+[[rules]]
+id = "mqtt-broker"
+description = "MQTT broker configuration"
+regex = '''(?i)broker["'\s]*[:=]\s*["']([^"'\s]+)'''
+tags = ["mqtt", "config"]
+
+[[rules]]
+id = "secret-key"
+description = "Application secret keys"
+regex = '''(?i)SECRET_KEY["'\s]*[:=]\s*["']([a-f0-9]{32,})'''
+tags = ["secret", "key"]
+
+# Allowlist for known safe patterns
+[allowlist]
+description = "Global allowlist"
+regexes = [
+  '''test@test\.de''',  # Example emails in documentation
+  '''testpassword''',   # Example passwords in documentation
+  '''localhost''',      # Local development
+  '''127\.0\.0\.1''',   # Local development
+  '''your\.email@example\.com''',  # Template placeholder email
+  '''your_myaudi_password''',      # Template placeholder password
+  '''change_this_password''',      # Template placeholder password
+  '''your_password''',             # Documentation placeholder password
+  '''dummy_password''',            # Script placeholder password
+  '''test@example\.com''',         # Script placeholder email
+  '''your\.mqtt\.broker\.com''',   # MQTT broker placeholder
+  '''admin''',                     # Default admin username
+  '''secret''',                    # Template/dev password
+  '''temp''',                      # Temporary testing password
+  '''dev''',                       # Development password
+  '''1234''',                      # Template SPIN placeholder
+  '''4324''',                      # Dev SPIN (if in dev config)
+  '''secure_random_password_here''', # Documentation placeholder
+  '''secure_password_here''',      # Documentation placeholder
+]
+
+paths = [
+  '''.*_test\.py''',     # Test files
+  '''.*test.*\.py''',    # Test files
+  '''.*/tests/.*''',     # Test directories
+  '''.*/doc/.*''',       # Documentation
+  '''doc/.*''',         # Documentation files
+  '''doc/Config\.md''',  # Configuration documentation
+  '''README\.md''',      # Documentation
+  '''audi_config_template\.json''',  # Configuration template
+  '''audi_config_minimal\.json''',   # Minimal configuration template
+  '''.*_template\.json''',           # Any template files
+  '''SCRIPTS\.md''',                 # Scripts documentation
+  '''tools/.*\.sh''',                # Shell scripts with example configs
+]

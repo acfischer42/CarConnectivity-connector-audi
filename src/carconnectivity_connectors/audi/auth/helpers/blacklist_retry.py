@@ -1,4 +1,5 @@
 """Implements a custom Retry class that allows for blacklisting certain status codes that will not retry."""
+
 from urllib3.util.retry import Retry
 
 
@@ -6,6 +7,7 @@ class BlacklistRetry(Retry):
     """
     BlacklistRetry class extends the Retry class to include a blacklist of status codes that should not be retried.
     """
+
     def __init__(self, status_blacklist=None, **kwargs) -> None:
         self.status_blacklist = status_blacklist
         super().__init__(**kwargs)

@@ -8,7 +8,7 @@ on:
 jobs:
   pypi-publish:
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: pypi
       url: https://pypi.org/p/CarConnectivity-connector-audi
     permissions:
@@ -19,30 +19,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-          
+
       - name: Install dependencies
         run: |
             python -m pip install --upgrade pip
             python -m pip install build setuptools-scm
-            
+
       - name: Verify version detection
         run: |
           echo "Detected version: $(python -c 'import setuptools_scm; print(setuptools_scm.get_version())')"
-          
+
       - name: Build package
         run: |
           python -m build
           ls -la dist/
-          
+
       - name: Extract tag version
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -60,6 +60,6 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
