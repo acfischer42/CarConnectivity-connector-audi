@@ -107,7 +107,7 @@ class Capability(GenericObject):
     def __init__(self, capability_id: str, capabilities: Capabilities) -> None:
         if capabilities is None:
             raise ValueError("Cannot create capability without capabilities")
-        if id is None:
+        if capability_id is None:
             raise ValueError("Capability ID cannot be None")
         super().__init__(object_id=capability_id, parent=capabilities)
         self.delay_notifications = True

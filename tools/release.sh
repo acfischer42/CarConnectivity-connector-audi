@@ -25,7 +25,7 @@ current_version=$(python3 -c "from src.carconnectivity_connectors.audi._version 
 echo "Current version: $current_version"
 
 # Extract base version and suggest next version
-base_version=$(echo "$current_version" | sed 's/\.dev.*//g')
+base_version=$(echo "$current_version" | sed 's/\.dev.*//')
 # Parse version parts
 IFS='.' read -ra VERSION_PARTS <<< "$base_version"
 major=${VERSION_PARTS[0]}
@@ -49,11 +49,6 @@ read -p "Enter new version [$suggested_version]: " new_version
 # Use suggested version if nothing entered
 if [ -z "$new_version" ]; then
     new_version="$suggested_version"
-fi
-
-if [ -z "$new_version" ]; then
-    echo "Error: Version cannot be empty"
-    exit 1
 fi
 
 # Validate version format (basic check)

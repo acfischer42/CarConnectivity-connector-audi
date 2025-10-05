@@ -65,10 +65,10 @@ print_status "Running: python -m build"
 venv/bin/python -m build
 
 # Check if build was successful
-if [ ! -f "dist/carconnectivity_connector_audi-"*"-py3-none-any.whl" ]; then
+ls dist/carconnectivity_connector_audi-*-py3-none-any.whl 1> /dev/null 2>&1 || {
     print_error "Build failed - no wheel file found in dist/"
     exit 1
-fi
+}
 
 WHEEL_FILE=$(ls dist/carconnectivity_connector_audi-*-py3-none-any.whl | tail -1)
 print_success "Package built successfully: $(basename "$WHEEL_FILE")"

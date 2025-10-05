@@ -8,6 +8,9 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Set GitHub repository URL (update if repo is forked or moved)
+GITHUB_REPO_URL="https://github.com/acfischer42/CarConnectivity-connector-audi"
+
 # Check if we're on main branch
 current_branch=$(git branch --show-current)
 if [ "$current_branch" != "main" ]; then
@@ -26,7 +29,7 @@ current_version=$(python3 -c "from src.carconnectivity_connectors.audi._version 
 echo "Current version: $current_version"
 
 # Extract base version (remove .dev and everything after)
-base_version=$(echo "$current_version" | sed 's/\.dev.*//g')
+base_version=$(echo "$current_version" | sed 's/\.dev.*//')
 
 # Parse version parts
 IFS='.' read -ra VERSION_PARTS <<< "$base_version"
@@ -63,7 +66,7 @@ if ! command -v gh &> /dev/null; then
     echo ""
     echo "To create a GitHub release manually:"
     echo "   gh release create v$new_version --generate-notes"
-    echo "🔗 Or create it via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
+    echo "🔗 Or create it via web interface at: $GITHUB_REPO_URL/releases/new"
     exit 0
 fi
 
@@ -82,9 +85,9 @@ echo "🚀 Creating GitHub release..."
 if gh release create "v$new_version" --generate-notes; then
     echo "✅ GitHub release v$new_version created successfully!"
     echo "📦 GitHub Actions will now build and publish to PyPI automatically."
-    echo "🔗 Check the progress at: https://github.com/acfischer42/CarConnectivity-connector-audi/actions"
+    echo "🔗 Check the progress at: $GITHUB_REPO_URL/actions"
 else
     echo "❌ Failed to create GitHub release. You can create it manually:"
     echo "   gh release create v$new_version --generate-notes"
-    echo "🔗 Or via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
+    echo "🔗 Or via web interface at: $GITHUB_REPO_URL/releases/new"
 fi

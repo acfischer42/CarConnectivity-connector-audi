@@ -394,8 +394,6 @@ class OpenIDSession(requests.Session):
                     if "expires_in" in token_data:
                         self.token["expires_in"] = int(token_data["expires_in"])
                         # Add expires_at for proper token expiry checking
-                        import time
-
                         self.token["expires_at"] = time.time() + int(token_data["expires_in"])
                     if "id_token" in token_data:
                         self.token["id_token"] = token_data["id_token"]

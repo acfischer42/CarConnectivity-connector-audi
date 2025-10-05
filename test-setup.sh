@@ -50,9 +50,14 @@ fi
 print_header "Installing Test Dependencies"
 print_status "Installing code quality tools..."
 pip install --upgrade pip
-pip install black isort flake8 mypy bandit safety pylint gitleaks || {
+pip install black isort flake8 mypy bandit safety pylint || {
     print_warning "Some tools failed to install. Continuing with available tools..."
 }
+
+# Ensure GitLeaks is installed (Go binary, not a pip package)
+if ! command -v gitleaks &> /dev/null; then
+    print_warning "GitLeaks not installed. Install with: go install github.com/gitleaks/gitleaks/v8@latest"
+fi
 
 # Test 1: Secret Detection
 print_header "1. Testing Secret Detection"

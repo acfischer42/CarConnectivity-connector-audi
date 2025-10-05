@@ -34,7 +34,7 @@ cd "$PROJECT_ROOT"
 
 # Check if test environment exists
 if [ ! -d "test-venv" ]; then
-    print_error "Test environment not found. Please run ./build-and-test.sh first"
+    print_error "Test environment not found. Please run ./1 build-and-test.sh first"
     exit 1
 fi
 
