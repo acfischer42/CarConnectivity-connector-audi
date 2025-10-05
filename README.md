@@ -93,6 +93,68 @@ carconnectivity-cli audi_config.json set /garage/YOUR_VIN/climatization/commands
 carconnectivity-cli audi_config.json set /garage/YOUR_VIN/doors/commands/lock-unlock lock
 ```
 
+## Running with Docker
+
+You can run the Audi connector using Docker with the [CarConnectivity-MQTT](https://github.com/tillsteinbach/CarConnectivity-plugin-mqtt) image made by Till. This allows you to publish vehicle data to an MQTT broker for integration with home automation systems.
+
+### Docker Compose Setup
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  carconnectivity-mqtt:
+    image: "tillsteinbach/carconnectivity-mqtt:latest"
+    environment:
+      - ADDITIONAL_INSTALLS=carconnectivity-connector-audi
+      - TZ=Europe/Berlin  # Set your timezone
+    volumes:
+      - ./carconnectivity.json:/carconnectivity.json
+    restart: unless-stopped
+```
+
+### Configuration for Docker
+
+Create a `carconnectivity.json` configuration file:
+
+```json
+{
+    "carConnectivity": {
+        "log_level": "info",
+        "connectors": [
+            {
+                "type": "audi",
+                "config": {
+                    "interval": 600,
+                    "username": "your.email@example.com",
+                    "password": "your_password"
+                }
+            }
+        ],
+        "plugins": [
+            {
+                "type": "mqtt",
+                "config": {
+                    "broker": "192.168.1.100",
+                    "port": 1883,
+                    "username": "mqtt_user",
+                    "password": "mqtt_password"
+                }
+            }
+        ]
+    }
+}
+```
+
+### Running the Container
+
+```bash
+docker-compose up -d
+```
+
+
+For detailed Docker configuration options, refer to the [CarConnectivity-MQTT Docker documentation](https://github.com/tillsteinbach/CarConnectivity-plugin-mqtt/blob/main/docker/README.md).
+
 ## Development
 
 ### Building from source
