@@ -4,48 +4,71 @@ This directory contains automation scripts to help you build, test, and run the 
 
 ## Scripts Overview
 
-### 1. `build-and-test.sh` - Complete Build and Test
-**Purpose**: Full automation of the build, test, and setup process
+### 1. `tools/0_test_security_setup.sh` - Security and Quality Validation
+**Purpose**: Comprehensive security and code quality validation
 
 **What it does**:
-- Cleans up any existing test environments
-- Sets up the main virtual environment with build tools
+- Tests GitLeaks secret detection configuration
+- Validates code formatting with Black and isort
+- Runs flake8 linting and pylint analysis
+- Performs bandit security analysis
+- Scans dependencies for vulnerabilities with safety
+- Tests pre-commit hooks setup
+- Validates package build configuration
+- Shows clear test results summary
+
+**When to use**:
+- Before committing code changes
+- Validating security setup
+- Checking code quality standards
+- CI/CD pipeline validation
+
+**Usage**:
+```bash
+./tools/0_test_security_setup.sh
+```
+
+### 2. `tools/1_build_and_test.sh` - Complete Build and Test Workflow
+**Purpose**: Full automation of build, test, and deployment preparation
+
+**What it does**:
+- Runs pre-commit quality checks (formatting, linting, security)
 - Builds the connector package (wheel and source distribution)
 - Creates a fresh test virtual environment
 - Installs the built package and all dependencies
 - Tests basic functionality and imports
 - Validates configuration files
-- Provides usage instructions
+- Provides usage instructions and setup guidance
 
 **When to use**:
+- Development workflow (includes all quality checks)
 - First time setup
 - After making code changes
-- When you want a clean rebuild
-- For CI/CD pipelines
+- For release preparation
+- CI/CD pipelines
 
 **Usage**:
 ```bash
-./build-and-test.sh
+./tools/1_build_and_test.sh
 ```
 
-### 2. `run.sh` - Quick Start Service
-**Purpose**: Quickly start the CarConnectivity service
+### 3. `run-dev.sh` - Quick Development Start
+**Purpose**: Quickly start the CarConnectivity service in development mode
 
 **What it does**:
-- Checks if the test environment exists
+- Uses existing development environment
 - Validates configuration file
-- Checks for port conflicts
-- Activates the test environment
 - Starts the CarConnectivity service
+- Provides debugging output
 
 **When to use**:
-- Daily usage after initial setup
-- Quick service restarts
+- Daily development usage
+- Quick service restarts during development
 - Testing configuration changes
 
 **Usage**:
 ```bash
-./run.sh
+./run-dev.sh
 ```
 
 ## Prerequisites

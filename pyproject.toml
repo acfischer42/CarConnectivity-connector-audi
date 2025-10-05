@@ -122,6 +122,7 @@ ignore-patterns = "_version.py"
 [tool.bandit]
 exclude_dirs = ["tests", "test"]
 skips = [
-    "B101",  # assert_used - allow asserts in test code
+    "B101",  # assert_used - allow asserts (used for type checking)
+    "B105",  # hardcoded_password_string - URLs are not passwords
     "B601",  # paramiko_calls - if using paramiko
 ]

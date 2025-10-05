@@ -78,8 +78,8 @@ jobs:
 
       - name: Security linting (bandit)
         run: |
-          bandit -r src/ -f json -o bandit-report.json || true
-          bandit -r src/ -f txt
+          bandit -r src/ -f json -o bandit-report.json --configfile pyproject.toml || true
+          bandit -r src/ -f txt --configfile pyproject.toml
 
       - name: Dependency vulnerability check (safety)
         run: |

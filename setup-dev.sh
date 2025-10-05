@@ -48,7 +48,7 @@ fi
 # Step 2: Install development dependencies
 print_status "Step 2: Installing development dependencies..."
 .venv/bin/pip install --upgrade pip
-.venv/bin/pip install build wheel setuptools
+.venv/bin/pip install build wheel setuptools pre-commit
 
 # Step 3: Install CarConnectivity and plugins
 print_status "Step 3: Installing CarConnectivity framework and plugins..."
@@ -57,6 +57,15 @@ print_status "Step 3: Installing CarConnectivity framework and plugins..."
 # Step 4: Install Audi connector in editable mode
 print_status "Step 4: Installing Audi connector in editable mode..."
 .venv/bin/pip install -e .
+
+# Step 5: Set up pre-commit hooks
+print_status "Step 5: Setting up pre-commit hooks..."
+if [ -f ".pre-commit-config.yaml" ]; then
+    .venv/bin/pre-commit install
+    print_success "Pre-commit hooks installed!"
+else
+    print_warning "No .pre-commit-config.yaml found - skipping pre-commit setup"
+fi
 
 print_success "Development environment setup complete!"
 echo ""
