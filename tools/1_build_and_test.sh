@@ -29,11 +29,13 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Get the project root directory (parent of tools directory)
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Get the directory where the script is located and change to project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 print_status "Starting CarConnectivity Audi Connector build and test process..."
+print_status "Script location: $SCRIPT_DIR"
 print_status "Working directory: $PROJECT_ROOT"
 
 # Step 1: Clean up any existing test environment
@@ -48,43 +50,61 @@ if [ -d "build" ]; then
     rm -rf build
 fi
 
-# Step 2: Ensure main venv exists and has build tools
-print_status "Step 2: Setting up main virtual environment..."
-if [ ! -d "venv" ]; then
-    print_status "Creating main virtual environment..."
-    python3 -m venv venv
+# Step 2: Ensure build environment exists
+print_status "Step 2: Setting up build environment..."
+if [ ! -d ".venv" ]; then
+    print_warning "Development environment not found. Run ./setup-dev.sh first for best experience."
+    print_status "Creating temporary build environment..."
+    python3 -m venv .venv
+    .venv/bin/pip install --upgrade pip build wheel setuptools
+else
+    print_status "Using existing development environment for building"
+    # Ensure build tools are available
+    .venv/bin/pip install --upgrade build wheel setuptools --quiet
 fi
 
-print_status "Installing build tools in main environment..."
-venv/bin/pip install --upgrade pip
-venv/bin/pip install build wheel setuptools
+# Step 3: Run pre-commit checks for code quality
+print_status "Step 3: Running pre-commit checks for code quality..."
+if command -v pre-commit &> /dev/null; then
+    if pre-commit run --all-files; then
+        print_success "All pre-commit checks passed!"
+    else
+        print_error "Pre-commit checks failed. Please fix the issues before building."
+        print_status "Run 'pre-commit run --all-files' to see the specific failures."
+        exit 1
+    fi
+else
+    print_warning "pre-commit not found. Install with: pip install pre-commit"
+    print_warning "Skipping code quality checks - consider setting up pre-commit hooks!"
+fi
 
-# Step 3: Build the package
-print_status "Step 3: Building the connector package..."
+# Step 4: Build the package
+print_status "Step 4: Building the connector package..."
 print_status "Running: python -m build"
-venv/bin/python -m build
+.venv/bin/python -m build
 
 # Check if build was successful
-ls dist/carconnectivity_connector_audi-*-py3-none-any.whl 1> /dev/null 2>&1 || {
+WHEEL_FILES=(dist/carconnectivity_connector_audi-*-py3-none-any.whl)
+if [ ! -f "${WHEEL_FILES[0]}" ]; then
     print_error "Build failed - no wheel file found in dist/"
     exit 1
-}
+fi
 
 WHEEL_FILE=$(ls dist/carconnectivity_connector_audi-*-py3-none-any.whl | tail -1)
 print_success "Package built successfully: $(basename "$WHEEL_FILE")"
 
-# Step 4: Create test environment
-print_status "Step 4: Creating test virtual environment..."
+# Step 5: Create test environment
+print_status "Step 5: Creating test virtual environment..."
 python3 -m venv test-venv
 
-# Step 5: Install the built package and dependencies
-print_status "Step 5: Installing package and dependencies in test environment..."
+# Step 6: Install the built package and dependencies
+print_status "Step 6: Installing package and dependencies in test environment..."
 test-venv/bin/pip install --upgrade pip
 test-venv/bin/pip install "$WHEEL_FILE"
 test-venv/bin/pip install carconnectivity-cli carconnectivity-plugin-webui carconnectivity-plugin-mqtt
 
-# Step 6: Test basic functionality
-print_status "Step 6: Testing basic functionality..."
+# Step 7: Test basic functionality
+print_status "Step 7: Testing basic functionality..."
 test-venv/bin/python -c "
 import carconnectivity_connectors.audi
 from carconnectivity_connectors.audi.connector import Connector
@@ -125,8 +145,8 @@ else
     exit 1
 fi
 
-# Step 7: Check configuration file
-print_status "Step 7: Checking configuration..."
+# Step 8: Check configuration file
+print_status "Step 8: Checking configuration..."
 if [ -f "audi_config.json" ]; then
     print_success "Configuration file found: audi_config.json"
 
@@ -142,8 +162,19 @@ if [ -f "audi_config.json" ]; then
     fi
 else
     print_warning "No audi_config.json found - you'll need to create one to run the service"
-    print_status "Example configuration:"
-    cat << 'EOF'
+
+    if [ -f "audi_config_template.json" ] || [ -f "audi_config_minimal.json" ]; then
+        print_status "Copy and customize a template:"
+        if [ -f "audi_config_template.json" ]; then
+            print_status "  Full config: cp audi_config_template.json audi_config.json"
+        fi
+        if [ -f "audi_config_minimal.json" ]; then
+            print_status "  Minimal (testing): cp audi_config_minimal.json audi_config.json"
+        fi
+        print_status "  # Edit audi_config.json with your credentials"
+    else
+        print_status "Create audi_config.json with your Audi credentials:"
+        cat << 'EOF'
 {
     "carConnectivity": {
         "log_level": "info",
@@ -153,7 +184,9 @@ else
                 "config": {
                     "interval": 300,
                     "username": "your.email@example.com",
-                    "password": "your_password"
+                    "password": "your_myaudi_password",
+                    "country": "DE",
+                    "spin": "1234"
                 }
             }
         ],
@@ -161,15 +194,16 @@ else
             {
                 "type": "webui",
                 "config": {
-                    "port": 8080,
+                    "port": 4000,
                     "username": "admin",
-                    "password": "secret"
+                    "password": "change_this_password"
                 }
             }
         ]
     }
 }
 EOF
+    fi
 fi
 
 # Step 8: Display usage instructions

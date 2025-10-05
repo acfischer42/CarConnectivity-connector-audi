@@ -28,6 +28,21 @@ regexes = [
   '''testpassword''',   # Example passwords in documentation
   '''localhost''',      # Local development
   '''127\.0\.0\.1''',   # Local development
+  '''your\.email@example\.com''',  # Template placeholder email
+  '''your_myaudi_password''',      # Template placeholder password
+  '''change_this_password''',      # Template placeholder password
+  '''your_password''',             # Documentation placeholder password
+  '''dummy_password''',            # Script placeholder password
+  '''test@example\.com''',         # Script placeholder email
+  '''your\.mqtt\.broker\.com''',   # MQTT broker placeholder
+  '''admin''',                     # Default admin username
+  '''secret''',                    # Template/dev password
+  '''temp''',                      # Temporary testing password
+  '''dev''',                       # Development password
+  '''1234''',                      # Template SPIN placeholder
+  '''4324''',                      # Dev SPIN (if in dev config)
+  '''secure_random_password_here''', # Documentation placeholder
+  '''secure_password_here''',      # Documentation placeholder
 ]
 
 paths = [
@@ -35,5 +50,12 @@ paths = [
   '''.*test.*\.py''',    # Test files
   '''.*/tests/.*''',     # Test directories
   '''.*/doc/.*''',       # Documentation
+  '''doc/.*''',         # Documentation files
+  '''doc/Config\.md''',  # Configuration documentation
   '''README\.md''',      # Documentation
+  '''audi_config_template\.json''',  # Configuration template
+  '''audi_config_minimal\.json''',   # Minimal configuration template
+  '''.*_template\.json''',           # Any template files
+  '''SCRIPTS\.md''',                 # Scripts documentation
+  '''tools/.*\.sh''',                # Shell scripts with example configs
 ]

@@ -18,8 +18,14 @@ __pycache__/
 *.pyo
 .pytest_cache/
 src/carconnectivity_connectors/audi/testing/*
+# Auto-generated version file
 src/carconnectivity_connectors/audi/_version.py
+
+# Configuration files with credentials (keep templates, ignore actual configs)
 audi_config.json
+audi_config_*.json
+!audi_config_template.json
+!audi_config_minimal.json
 
 k8s-carconnectivity.yaml
 carconnectivity.yaml

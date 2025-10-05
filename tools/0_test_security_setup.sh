@@ -50,7 +50,7 @@ fi
 print_header "Installing Test Dependencies"
 print_status "Installing code quality tools..."
 pip install --upgrade pip
-pip install black isort flake8 mypy bandit safety pylint || {
+pip install black==25.9.0 isort==6.1.0 flake8==7.3.0 mypy bandit safety pylint || {
     print_warning "Some tools failed to install. Continuing with available tools..."
 }
 
@@ -79,7 +79,7 @@ print_header "2. Testing Code Formatting"
 print_status "Testing Black formatting..."
 if command -v black &> /dev/null; then
     echo "Checking code formatting (dry-run)..."
-    black --check --diff src/ || {
+    black --check --diff src/ --extend-exclude '_version\.py' || {
         print_warning "Code formatting issues found. Run 'black src/' to fix."
     }
     print_success "Black formatting check completed"
@@ -90,7 +90,7 @@ fi
 print_status "Testing import sorting..."
 if command -v isort &> /dev/null; then
     echo "Checking import sorting (dry-run)..."
-    isort --check-only --diff src/ || {
+    isort --check-only --diff src/ --skip _version.py || {
         print_warning "Import sorting issues found. Run 'isort src/' to fix."
     }
     print_success "Import sorting check completed"
@@ -218,6 +218,9 @@ configs=(
     ".gitleaks.toml"
     ".pre-commit-config.yaml"
     "pyproject.toml"
+    "audi_config_template.json"
+    "audi_config_minimal.json"
+    "tools/1_build_and_test.sh"
 )
 
 for config in "${configs[@]}"; do
