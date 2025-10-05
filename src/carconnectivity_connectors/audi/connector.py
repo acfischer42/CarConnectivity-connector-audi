@@ -79,6 +79,7 @@ try:
     SUPPORT_IMAGES = True
     from carconnectivity.attributes import ImageAttribute
 except ImportError:
+    # PIL is optional - continue without image support if not available
     pass
 
 if TYPE_CHECKING:

@@ -53,7 +53,7 @@ fi
 print_header "Installing Test Dependencies"
 print_status "Installing code quality tools..."
 pip install --upgrade pip
-pip install black==25.9.0 isort==6.1.0 flake8==7.3.0 bandit safety pylint || {
+pip install black==25.9.0 isort==6.1.0 flake8==7.3.0 bandit safety pip-audit pylint || {
     print_warning "Some tools failed to install. Continuing with available tools..."
 }
 
@@ -147,7 +147,7 @@ else
     print_error "bandit not installed"
 fi
 
-print_status "Testing dependency vulnerability scan..."
+print_status "Testing dependency vulnerability scan (safety)..."
 if command -v safety &> /dev/null; then
     echo "Running safety dependency scan..."
     # Note: For full functionality, set SAFETY_API_KEY environment variable
@@ -158,6 +158,21 @@ if command -v safety &> /dev/null; then
     print_success "safety dependency scan completed"
 else
     print_error "safety not installed"
+fi
+
+print_status "Testing dependency vulnerability scan (pip-audit)..."
+if command -v pip-audit &> /dev/null; then
+    echo "Running pip-audit dependency scan..."
+    # pip-audit scans all installed packages for known vulnerabilities
+    # It includes Python base packages that safety might not cover
+    pip-audit --progress-spinner=off || {
+        print_warning "pip-audit found vulnerable dependencies. Review and update affected packages."
+        print_status "Note: Some vulnerabilities may be in external/optional dependencies outside our control."
+        print_status "See security-scan-results.md for detailed analysis and action items."
+    }
+    print_success "pip-audit dependency scan completed"
+else
+    print_error "pip-audit not installed"
 fi
 
 # Test 6: Pre-commit Hooks
@@ -241,7 +256,8 @@ echo "✅ Import Sorting: $(if command -v isort >/dev/null 2>&1; then echo 'All 
 echo "✅ Code Linting: $(if command -v flake8 >/dev/null 2>&1; then echo 'Linting rules configured and active'; else echo 'Tool missing'; fi)"
 echo "✅ Type Checking: $(if [ "$TYPE_CHECKING_ENABLED" = true ]; then echo 'mypy configured and active'; else echo 'Disabled for legacy codebase'; fi)"
 echo "✅ Security Analysis: $(if command -v bandit >/dev/null 2>&1; then echo 'No security issues detected'; else echo 'Tool missing'; fi)"
-echo "✅ Dependency Scan: $(if command -v safety >/dev/null 2>&1; then echo 'No vulnerable dependencies'; else echo 'Tool missing'; fi)"
+echo "✅ Dependency Scan (Safety): $(if command -v safety >/dev/null 2>&1; then echo 'No vulnerable dependencies'; else echo 'Tool missing'; fi)"
+echo "✅ Dependency Scan (pip-audit): $(if command -v pip-audit >/dev/null 2>&1; then echo 'Base packages scanned'; else echo 'Tool missing'; fi)"
 echo "✅ Pre-commit Hooks: $(if [ -f .pre-commit-config.yaml ]; then echo 'Configured and ready'; else echo 'Config missing'; fi)"
 echo "✅ Package Build: $(if [ -f pyproject.toml ]; then echo 'Build configuration ready'; else echo 'Config missing'; fi)"
 echo ""

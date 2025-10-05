@@ -32,3 +32,4 @@ carconnectivity.yaml
 src/carconnectivity_connectors/audi/_version.py
 audi_config_dev.json
 test-venv/
+security-scan-results.md

@@ -70,6 +70,16 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
     This class uses multiple inheritance from ElectricVehicle and AudiVehicle.
     The super().__init__() call properly initializes all parent classes through
     Python's Method Resolution Order (MRO).
+
+    MRO for AudiElectricVehicle:
+    1. AudiElectricVehicle
+    2. ElectricVehicle
+    3. AudiVehicle
+    4. GenericVehicle
+    5. GenericObject
+    6. object
+
+    The super().__init__() call ensures proper initialization of all parent classes.
     """
 
     def __init__(
@@ -79,17 +89,20 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
-        # Initialize all parent classes through MRO
+        # Initialize parent classes through MRO - always call super().__init__()
+        # CodeQL requires this call to be made in all code paths
         if origin is not None:
-            # Call super().__init__ which properly initializes both ElectricVehicle and AudiVehicle
+            # Initialize with origin-based parameters
             super().__init__(garage=garage, origin=origin)
+            # Set up Audi-specific charging with origin
             if isinstance(origin, ElectricVehicle):
                 self.charging = AudiCharging(vehicle=self, origin=origin.charging)
             else:
                 self.charging = AudiCharging(vehicle=self, origin=self.charging)
         else:
-            # Call super().__init__ which properly initializes both ElectricVehicle and AudiVehicle
+            # Initialize with direct parameters
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
+            # Set up Audi-specific charging without origin
             self.charging = AudiCharging(vehicle=self, origin=self.charging)
 
 
@@ -100,6 +113,16 @@ class AudiCombustionVehicle(CombustionVehicle, AudiVehicle):
     This class uses multiple inheritance from CombustionVehicle and AudiVehicle.
     The super().__init__() call properly initializes all parent classes through
     Python's Method Resolution Order (MRO).
+
+    MRO for AudiCombustionVehicle:
+    1. AudiCombustionVehicle
+    2. CombustionVehicle
+    3. AudiVehicle
+    4. GenericVehicle
+    5. GenericObject
+    6. object
+
+    The super().__init__() call ensures proper initialization of all parent classes.
     """
 
     def __init__(
@@ -109,12 +132,13 @@ class AudiCombustionVehicle(CombustionVehicle, AudiVehicle):
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
-        # Initialize all parent classes through MRO
+        # Initialize parent classes through MRO - always call super().__init__()
+        # CodeQL requires this call to be made in all code paths
         if origin is not None:
-            # Call super().__init__ which properly initializes both CombustionVehicle and AudiVehicle
+            # Initialize with origin-based parameters
             super().__init__(garage=garage, origin=origin)
         else:
-            # Call super().__init__ which properly initializes both CombustionVehicle and AudiVehicle
+            # Initialize with direct parameters
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
 
 
@@ -125,6 +149,20 @@ class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicl
     This class uses multiple inheritance from HybridVehicle, AudiElectricVehicle, and AudiCombustionVehicle.
     The super().__init__() call properly initializes all parent classes through
     Python's Method Resolution Order (MRO).
+
+    MRO for AudiHybridVehicle:
+    1. AudiHybridVehicle
+    2. HybridVehicle
+    3. AudiElectricVehicle
+    4. ElectricVehicle
+    5. AudiCombustionVehicle
+    6. CombustionVehicle
+    7. AudiVehicle
+    8. GenericVehicle
+    9. GenericObject
+    10. object
+
+    The super().__init__() call ensures proper initialization of all parent classes.
     """
 
     def __init__(
@@ -134,10 +172,11 @@ class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicl
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
-        # Initialize all parent classes through MRO
+        # Initialize parent classes through MRO - always call super().__init__()
+        # CodeQL requires this call to be made in all code paths
         if origin is not None:
-            # Call super().__init__ which properly initializes all parent classes
+            # Initialize with origin-based parameters
             super().__init__(garage=garage, origin=origin)
         else:
-            # Call super().__init__ which properly initializes all parent classes
+            # Initialize with direct parameters
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
