@@ -25,7 +25,7 @@ current_version=$(python3 -c "from src.carconnectivity_connectors.audi._version 
 echo "Current version: $current_version"
 
 # Extract base version and suggest next version
-base_version=$(echo "$current_version" | sed 's/\.dev.*//g')
+base_version=$(echo "$current_version" | sed 's/\.dev.*//')
 # Parse version parts
 IFS='.' read -ra VERSION_PARTS <<< "$base_version"
 major=${VERSION_PARTS[0]}

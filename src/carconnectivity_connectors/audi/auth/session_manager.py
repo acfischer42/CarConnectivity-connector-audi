@@ -66,7 +66,7 @@ class SessionManager:
     def __init__(self, tokenstore: Dict[str, Any], cache: Dict[str, Any]) -> None:
         self.tokenstore: Dict[str, Any] = tokenstore
         self.cache: Dict[str, Any] = cache
-        self.sessions: Dict[Tuple[Service, SessionUser], AudiWebSession] = {}
+        self.sessions: Dict[Tuple[Service, SessionUser], "AudiWebSession"] = {}
 
     @staticmethod
     def generate_hash(service: Service, session_user: SessionUser) -> str:

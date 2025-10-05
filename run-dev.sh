@@ -40,9 +40,9 @@ if [ ! -d ".venv" ]; then
 fi
 
 # Check if config exists
-if [ ! -f "audi_config.json" ]; then
-    print_error "Configuration file audi_config.json not found"
-    print_status "Please create audi_config.json with your Audi credentials"
+if [ ! -f "audi_config_dev.json" ]; then
+    print_error "Configuration file audi_config_dev.json not found"
+    print_status "Please create audi_config_dev.json with your Audi credentials"
     exit 1
 fi
 
