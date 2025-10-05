@@ -66,6 +66,10 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
 class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
     """
     Represents an Audi electric vehicle.
+
+    This class uses multiple inheritance from ElectricVehicle and AudiVehicle.
+    The super().__init__() call properly initializes all parent classes through
+    Python's Method Resolution Order (MRO).
     """
 
     def __init__(
@@ -75,13 +79,16 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
+        # Initialize all parent classes through MRO
         if origin is not None:
+            # Call super().__init__ which properly initializes both ElectricVehicle and AudiVehicle
             super().__init__(garage=garage, origin=origin)
             if isinstance(origin, ElectricVehicle):
                 self.charging = AudiCharging(vehicle=self, origin=origin.charging)
             else:
                 self.charging = AudiCharging(vehicle=self, origin=self.charging)
         else:
+            # Call super().__init__ which properly initializes both ElectricVehicle and AudiVehicle
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
             self.charging = AudiCharging(vehicle=self, origin=self.charging)
 
@@ -89,6 +96,10 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
 class AudiCombustionVehicle(CombustionVehicle, AudiVehicle):
     """
     Represents an Audi combustion vehicle.
+
+    This class uses multiple inheritance from CombustionVehicle and AudiVehicle.
+    The super().__init__() call properly initializes all parent classes through
+    Python's Method Resolution Order (MRO).
     """
 
     def __init__(
@@ -98,15 +109,22 @@ class AudiCombustionVehicle(CombustionVehicle, AudiVehicle):
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
+        # Initialize all parent classes through MRO
         if origin is not None:
+            # Call super().__init__ which properly initializes both CombustionVehicle and AudiVehicle
             super().__init__(garage=garage, origin=origin)
         else:
+            # Call super().__init__ which properly initializes both CombustionVehicle and AudiVehicle
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
 
 
 class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicle):
     """
     Represents an Audi hybrid vehicle.
+
+    This class uses multiple inheritance from HybridVehicle, AudiElectricVehicle, and AudiCombustionVehicle.
+    The super().__init__() call properly initializes all parent classes through
+    Python's Method Resolution Order (MRO).
     """
 
     def __init__(
@@ -116,7 +134,10 @@ class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicl
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
     ) -> None:
+        # Initialize all parent classes through MRO
         if origin is not None:
+            # Call super().__init__ which properly initializes all parent classes
             super().__init__(garage=garage, origin=origin)
         else:
+            # Call super().__init__ which properly initializes all parent classes
             super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)

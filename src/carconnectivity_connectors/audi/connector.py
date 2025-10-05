@@ -227,10 +227,14 @@ class Connector(BaseConnector):
         self.session: WeConnectSession = session
         self.session.retries = 3
         self.session.timeout = 180
+
+        # Log session creation without exposing sensitive information
+        username_masked = "***" if self.active_config.get("username") else None
+        spin_masked = "***" if self.active_config.get("spin") else None
         LOG.debug(
             "Audi connector session created: username=%s spin=%s timeout=%s",
-            self.active_config.get("username"),
-            self.active_config.get("spin"),
+            username_masked,
+            spin_masked,
             self.session.timeout,
         )
         LOG_API.debug("Audi API debug logger initialized")
