@@ -1,7 +1,12 @@
 #!/bin/bash
-# Release script for CarConnectivity Audi Connector
+# Auto-release script for CarConnectivity Audi Connector
+# Automatically increments patch version
 
 set -e
+
+# Get the project root directory (parent of tools directory)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 # Check if we're on main branch
 current_branch=$(git branch --show-current)
@@ -16,22 +21,30 @@ if ! git diff-index --quiet HEAD --; then
     exit 1
 fi
 
-# Get current version
+# Get current version and auto-increment patch
 current_version=$(python3 -c "from src.carconnectivity_connectors.audi._version import __version__; print(__version__)")
 echo "Current version: $current_version"
 
-# Ask for new version
-read -p "Enter new version (e.g., 0.1.2): " new_version
+# Extract base version (remove .dev and everything after)
+base_version=$(echo "$current_version" | sed 's/\.dev.*//g')
 
-if [ -z "$new_version" ]; then
-    echo "Error: Version cannot be empty"
-    exit 1
-fi
+# Parse version parts
+IFS='.' read -ra VERSION_PARTS <<< "$base_version"
+major=${VERSION_PARTS[0]}
+minor=${VERSION_PARTS[1]}  
+patch=${VERSION_PARTS[2]}
 
-# Validate version format (basic check)
-if ! [[ $new_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: Version must be in format x.y.z (e.g., 0.1.2)"
-    exit 1
+# Auto-increment patch version
+new_patch=$((patch + 1))
+new_version="$major.$minor.$new_patch"
+
+echo "Auto-generating new version: $new_version"
+
+# Confirm with user
+read -p "Create release v$new_version? [Y/n]: " confirm
+if [[ $confirm =~ ^[Nn]$ ]]; then
+    echo "Release cancelled"
+    exit 0
 fi
 
 echo "Creating release v$new_version..."
@@ -50,7 +63,7 @@ if ! command -v gh &> /dev/null; then
     echo ""
     echo "To create a GitHub release manually:"
     echo "   gh release create v$new_version --generate-notes"
-    echo "� Or create it via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
+    echo "🔗 Or create it via web interface at: https://github.com/acfischer42/CarConnectivity-connector-audi/releases/new"
     exit 0
 fi
 
@@ -68,7 +81,7 @@ fi
 echo "🚀 Creating GitHub release..."
 if gh release create "v$new_version" --generate-notes; then
     echo "✅ GitHub release v$new_version created successfully!"
-    echo "�📦 GitHub Actions will now build and publish to PyPI automatically."
+    echo "📦 GitHub Actions will now build and publish to PyPI automatically."
     echo "🔗 Check the progress at: https://github.com/acfischer42/CarConnectivity-connector-audi/actions"
 else
     echo "❌ Failed to create GitHub release. You can create it manually:"
