@@ -1,7 +1,18 @@
-venv*
+# Virtual environments
+.venv/
+.env/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Build artifacts
 dist/
 build/
 *.egg-info/
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
@@ -13,3 +24,4 @@ audi_config.json
 k8s-carconnectivity.yaml
 carconnectivity.yaml
 src/carconnectivity_connectors/audi/_version.py
+audi_config_dev.json
