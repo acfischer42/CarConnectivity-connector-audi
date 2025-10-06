@@ -13,6 +13,10 @@ jobs:
   pip-audit-scan:
     name: Pip Audit Vulnerability Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
@@ -39,11 +43,12 @@ jobs:
 
       - name: Generate pip-audit SARIF report
         run: |
-          pip-audit --format=sarif --output=pip-audit.sarif || true
+          # Generate SARIF report, but only if vulnerabilities are found
+          pip-audit --format=sarif --output=pip-audit.sarif || echo "No SARIF file generated (likely no vulnerabilities found)"
 
       - name: Upload pip-audit results to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('pip-audit.sarif') != ''
         with:
           sarif_file: pip-audit.sarif
 
