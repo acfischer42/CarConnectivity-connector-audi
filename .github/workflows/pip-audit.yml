@@ -84,11 +84,15 @@ jobs:
           echo "" >> pip-audit-summary.md
 
           echo "## Vulnerability Scan Results" >> pip-audit-summary.md
-          pip-audit --desc --format=cyclonedx || echo "No vulnerabilities found" >> pip-audit-summary.md
+          echo '```' >> pip-audit-summary.md
+          pip-audit --desc || echo "No vulnerabilities found" >> pip-audit-summary.md
+          echo '```' >> pip-audit-summary.md
 
           echo "" >> pip-audit-summary.md
           echo "## Installed Package Versions" >> pip-audit-summary.md
-          pip list --format=markdown >> pip-audit-summary.md
+          echo '```' >> pip-audit-summary.md
+          pip list >> pip-audit-summary.md
+          echo '```' >> pip-audit-summary.md
 
       - name: Upload summary report
         uses: actions/upload-artifact@v4
