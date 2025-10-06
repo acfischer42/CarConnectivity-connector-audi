@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --upgrade "setuptools>=78.1.1"  # Security: Fix PYSEC-2022-43012, PYSEC-2025-49
-          pip install -e .
+          pip install .
           pip install pip-audit
 
       - name: Run pip-audit for dependency vulnerabilities
