@@ -130,7 +130,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build wheel setuptools
+          pip install build wheel "setuptools>=78.1.1"  # Security: Fix PYSEC-2022-43012, PYSEC-2025-49
 
       - name: Build package
         run: |
