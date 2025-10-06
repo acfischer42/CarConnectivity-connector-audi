@@ -48,7 +48,12 @@ fi
 # Step 2: Install development dependencies
 print_status "Step 2: Installing development dependencies..."
 .venv/bin/pip install --upgrade pip
-.venv/bin/pip install build wheel setuptools pre-commit
+.venv/bin/pip install --upgrade "setuptools>=78.1.1"  # Security: Fix PYSEC-2022-43012, PYSEC-2025-49
+.venv/bin/pip install build wheel pre-commit
+
+# Step 2.1: Install security scanning tools
+print_status "Step 2.1: Installing security scanning tools..."
+.venv/bin/pip install pip-audit bandit safety
 
 # Step 3: Install CarConnectivity and plugins
 print_status "Step 3: Installing CarConnectivity framework and plugins..."
@@ -79,11 +84,19 @@ echo "  source .venv/bin/activate"
 echo "  carconnectivity-cli audi_config.json"
 echo ""
 print_status "To test your changes:"
-echo "  ./tools/build-and-test.sh  # Builds and tests in separate environment"
+echo "  ./tools/1_build_and_test.sh  # Builds and tests in separate environment"
+echo "  ./tools/2_run-test.sh        # Runs tests only"
+echo ""
+print_status "Security scanning commands:"
+echo "  pip-audit --desc             # Check for vulnerable dependencies"
+echo "  bandit -r src/               # Static security analysis"
+echo "  safety check                 # Alternative vulnerability scanner"
 echo ""
 print_status "Development benefits:"
 echo "  ✓ Editable install - changes to code are immediately available"
 echo "  ✓ Full CarConnectivity setup with all plugins"
+echo "  ✓ Security tools pre-installed (pip-audit, bandit, safety)"
+echo "  ✓ Secure dependency versions (setuptools >=78.1.1)"
 echo "  ✓ Separate from test environment"
 echo ""
 print_success "Happy coding! 🚗💻"

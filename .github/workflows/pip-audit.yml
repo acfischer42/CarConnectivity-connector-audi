@@ -38,13 +38,13 @@ jobs:
 
       - name: Run pip-audit for dependency vulnerabilities
         run: |
-          pip-audit --desc --output pip-audit-report.json --format=json || true
-          pip-audit --desc
+          pip-audit --desc --output pip-audit-report.json --format=json --ignore-package=carconnectivity-connector-audi || true
+          pip-audit --desc --ignore-package=carconnectivity-connector-audi
 
       - name: Generate pip-audit SARIF report
         run: |
           # Generate SARIF report, but only if vulnerabilities are found
-          pip-audit --format=sarif --output=pip-audit.sarif || echo "No SARIF file generated (likely no vulnerabilities found)"
+          pip-audit --format=sarif --output=pip-audit.sarif --ignore-package=carconnectivity-connector-audi || echo "No SARIF file generated (likely no vulnerabilities found)"
 
       - name: Upload pip-audit results to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
@@ -90,7 +90,7 @@ jobs:
 
           echo "## Vulnerability Scan Results" >> pip-audit-summary.md
           echo '```' >> pip-audit-summary.md
-          pip-audit --desc || echo "No vulnerabilities found" >> pip-audit-summary.md
+          pip-audit --desc --ignore-package=carconnectivity-connector-audi || echo "No vulnerabilities found" >> pip-audit-summary.md
           echo '```' >> pip-audit-summary.md
 
           echo "" >> pip-audit-summary.md

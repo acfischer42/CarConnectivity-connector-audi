@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=61.0",
+    "setuptools>=78.1.1",  # Updated for security fixes (PYSEC-2022-43012, PYSEC-2025-49)
     "setuptools_scm>=8"
 ]
 build-backend = "setuptools.build_meta"
