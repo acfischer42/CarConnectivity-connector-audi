@@ -49,6 +49,7 @@ from carconnectivity.errors import (
 )
 from carconnectivity.garage import Garage
 from carconnectivity.lights import Lights
+from carconnectivity.objects import GenericObject
 from carconnectivity.position import Position
 from carconnectivity.units import Length, Power, Speed, Temperature
 from carconnectivity.util import config_remove_credentials, log_extra_keys, robust_time_parse
@@ -67,7 +68,13 @@ from carconnectivity_connectors.audi.capability import Capability
 from carconnectivity_connectors.audi.charging import AudiCharging, mapping_audi_charging_state
 from carconnectivity_connectors.audi.climatization import AudiClimatization
 from carconnectivity_connectors.audi.command_impl import SpinCommand
-from carconnectivity_connectors.audi.vehicle import AudiCombustionVehicle, AudiElectricVehicle, AudiHybridVehicle, AudiVehicle
+from carconnectivity_connectors.audi.vehicle import (
+    AudiCombustionVehicle,
+    AudiElectricVehicle,
+    AudiHybridVehicle,
+    AudiVehicle,
+    GarageRawAPI,
+)
 
 SUPPORT_IMAGES = False
 try:
@@ -89,6 +96,7 @@ if TYPE_CHECKING:
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.connectors.audi")
 LOG_API: logging.Logger = logging.getLogger("carconnectivity.connectors.audi-api-debug")
+LOG_RAW_API: logging.Logger = logging.getLogger("carconnectivity.connectors.audi.rawapi")
 
 # API Enhancement Notes:
 # - Added support for 'ready' value in ExternalPower enum (mapped to AVAILABLE)
@@ -157,6 +165,13 @@ class Connector(BaseConnector):
         self.interval._is_changeable = True  # pylint: disable=protected-access
 
         self.commands: Commands = Commands(parent=self)
+
+        # Add global rawAPI endpoints
+        self.rawAPI: GenericObject = GenericObject(object_id="rawAPI", parent=self)
+        self.rawAPI.vehicles = GenericAttribute("vehicles", self.rawAPI, value=None, tags={"connector_custom", "rawapi"})
+        self.rawAPI.capabilities = GenericAttribute(
+            "capabilities", self.rawAPI, value=None, tags={"connector_custom", "rawapi"}
+        )
 
         LOG.info("Loading audi connector with config %s", config_remove_credentials(config))
 
@@ -429,6 +444,11 @@ class Connector(BaseConnector):
             None
         """
         garage: Garage = self.car_connectivity.garage
+
+        # Add garage-level rawAPI if it doesn't exist
+        if not hasattr(garage, "rawAPI"):
+            garage.rawAPI = GarageRawAPI(garage)
+
         url = "https://emea.bff.cariad.digital/vehicle/v1/vehicles"
         LOG.debug("Fetching vehicle list from %s", url)
         LOG_API.debug("Fetching vehicle list from API endpoint %s", url)
@@ -566,11 +586,26 @@ class Connector(BaseConnector):
                                 vehicle.doors.commands.add_command(lock_unlock_command)
 
                         if SUPPORT_IMAGES:
-                            # fetch vehcile images
-                            url: str = (
-                                f'https://emea.bff.cariad.digital/media/v2/vehicle-images/{vehicle_dict["vin"]}?resolution=2x'
-                            )
-                            data = self._fetch_data(url, session=self.session, allow_http_error=True)
+                            # Try multiple vehicle images URL patterns
+                            vin = vehicle_dict["vin"]
+                            image_endpoints = [
+                                f"https://emea.bff.cariad.digital/media/v1/vehicle-images/{vin}",
+                                f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/images",
+                                f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/media",
+                                f"https://emea.bff.cariad.digital/vehicle-image/v1/vehicles/{vin}",
+                                f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/renders",
+                            ]
+
+                            data = None
+                            for url in image_endpoints:
+                                LOG.debug(f"Trying vehicle images URL: {url}")
+                                data = self._fetch_data(url, session=self.session, allow_http_error=True)
+                                if data is not None:
+                                    LOG.info(f"Successfully fetched vehicle images from {url}")
+                                    break
+                                else:
+                                    LOG.debug(f"No data from vehicle images endpoint: {url}")
+
                             if data is not None and "data" in data:  # pylint: disable=too-many-nested-blocks
                                 for image in data["data"]:
                                     img = None
@@ -2645,6 +2680,10 @@ class Connector(BaseConnector):
                 self._record_elapsed(status_response.elapsed)
                 if status_response.status_code in (requests.codes["ok"], requests.codes["multiple_status"]):
                     data = status_response.json()
+                    # Log raw API response for debugging
+                    LOG_RAW_API.debug("RAW API RESPONSE for %s: %s", url, json.dumps(data, indent=2, default=str))
+                    # Store raw API response in vehicle rawAPI object if applicable
+                    self._store_raw_api_response(url, data)
                     if session.cache is not None:
                         session.cache[url] = (data, str(datetime.utcnow()))
                 elif status_response.status_code == requests.codes["no_content"] and allow_empty:
@@ -2661,6 +2700,12 @@ class Connector(BaseConnector):
 
                     if status_response.status_code in (requests.codes["ok"], requests.codes["multiple_status"]):
                         data = status_response.json()
+                        # Log raw API response for debugging
+                        LOG_RAW_API.debug(
+                            "RAW API RESPONSE for %s (after re-auth): %s", url, json.dumps(data, indent=2, default=str)
+                        )
+                        # Store raw API response in vehicle rawAPI object if applicable
+                        self._store_raw_api_response(url, data)
                         if session.cache is not None:
                             session.cache[url] = (data, str(datetime.utcnow()))
                     elif not allow_http_error or (
@@ -2693,6 +2738,54 @@ class Connector(BaseConnector):
 
     def get_type(self) -> str:
         return "carconnectivity-connector-audi"
+
+    def _store_raw_api_response(self, url: str, data: Dict[str, Any]) -> None:
+        """
+        Store raw API response data in vehicle rawAPI objects for external access.
+
+        Args:
+            url: The API endpoint URL
+            data: The raw JSON response data
+        """
+        try:
+            # Extract VIN from URL if present
+            vin_match = None
+            if "/vehicles/" in url:
+                # Extract VIN from URLs like /vehicles/{VIN}/selectivestatus
+                parts = url.split("/vehicles/")
+                if len(parts) > 1:
+                    vin_part = parts[1].split("/")[0]
+                    if len(vin_part) == 17:  # VIN is 17 characters
+                        vin_match = vin_part
+
+            # Determine endpoint type and store data
+            if "vehicle/v1/vehicles" in url and "/selectivestatus" in url and vin_match:
+                # Selective status endpoint
+                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
+                if vehicle and hasattr(vehicle, "rawAPI"):
+                    vehicle.rawAPI.selectivestatus._set_value(data)  # pylint: disable=protected-access
+
+            elif "vehicle/v1/vehicles" in url and "/parkingposition" in url and vin_match:
+                # Parking position endpoint
+                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
+                if vehicle and hasattr(vehicle, "rawAPI"):
+                    vehicle.rawAPI.parkingposition._set_value(data)  # pylint: disable=protected-access
+
+            elif "vehicle/v1/vehicles" in url and not vin_match:
+                # Vehicle list endpoint - store at garage level only
+                if hasattr(self.car_connectivity.garage, "rawAPI"):
+                    self.car_connectivity.garage.rawAPI.vehicles._set_value(data)  # pylint: disable=protected-access
+
+            elif vin_match and any(
+                endpoint in url for endpoint in ["/renders", "/images", "/media", "vehicle-images", "vehicle-image"]
+            ):
+                # Vehicle images endpoint (various possible paths)
+                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
+                if vehicle and hasattr(vehicle, "rawAPI"):
+                    vehicle.rawAPI.vehicle_images._set_value(data)  # pylint: disable=protected-access
+
+        except Exception as e:
+            LOG.debug("Could not store raw API response for %s: %s", url, e)
 
     def __on_air_conditioning_settings_change(self, attribute: GenericAttribute, value: Any) -> Any:
         """
