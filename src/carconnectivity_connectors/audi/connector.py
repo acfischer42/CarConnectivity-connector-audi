@@ -2120,6 +2120,38 @@ class Connector(BaseConnector):
                     data["climatisation"],
                     {"climatisationStatus", "climatisationSettings", "windowHeatingStatus"},
                 )
+
+            # Process climatisationTimers data
+            if "climatisationTimers" in data and data["climatisationTimers"] is not None:
+                if (
+                    "climatisationTimersStatus" in data["climatisationTimers"]
+                    and data["climatisationTimers"]["climatisationTimersStatus"] is not None
+                ):
+                    if (
+                        "value" in data["climatisationTimers"]["climatisationTimersStatus"]
+                        and data["climatisationTimers"]["climatisationTimersStatus"]["value"] is not None
+                    ):
+                        timers_status = data["climatisationTimers"]["climatisationTimersStatus"]["value"]
+                        if "carCapturedTimestamp" not in timers_status or timers_status["carCapturedTimestamp"] is None:
+                            LOG.warning("Could not fetch climatisation timers, carCapturedTimestamp missing")
+                        else:
+                            captured_at: datetime = robust_time_parse(timers_status["carCapturedTimestamp"])
+                            if "timers" in timers_status and timers_status["timers"] is not None:
+                                # Ensure we have an AudiClimatization object with timers
+                                if not isinstance(vehicle.climatization, AudiClimatization):
+                                    vehicle.climatization = AudiClimatization(origin=vehicle.climatization)
+
+                                # Update timer data
+                                vehicle.climatization.timers.update_timers(timers_status["timers"], captured_at)
+                                LOG.debug("Updated %d climatisation timers for vehicle %s", len(timers_status["timers"]), vin)
+
+                                log_extra_keys(
+                                    LOG_API,
+                                    "climatisationTimers",
+                                    timers_status,
+                                    {"carCapturedTimestamp", "timers"},
+                                )
+
             if "charging" in data and data["charging"] is not None:
                 if not isinstance(vehicle, AudiElectricVehicle):
                     LOG.debug("Promoting %s to AudiElectricVehicle object for %s", vehicle.__class__.__name__, vin)
