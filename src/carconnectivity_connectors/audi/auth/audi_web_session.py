@@ -35,10 +35,7 @@ class AudiWebSession(OpenIDSession):
         # Audi-specific client_id and redirect_uri (from audi_connect_ha)
         audi_client_id = "09b6cbec-cd19-4589-82fd-363dfa8c24da@apps_vw-dilab_com"
         audi_redirect_uri = "myaudi:///"
-        audi_scope = (
-            "address profile badge birthdate birthplace nationalIdentifier nationality "
-            "profession email vin phone nickname name picture mbb gallery openid"
-        )
+        audi_scope = "openid email profile vin mbb"
         kwargs["client_id"] = audi_client_id
         kwargs["redirect_uri"] = audi_redirect_uri
         kwargs["scope"] = audi_scope
