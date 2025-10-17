@@ -88,6 +88,8 @@ mapping_audi_charging_state: Dict[AudiCharging.AudiChargingState, Charging.Charg
     AudiCharging.AudiChargingState.NOT_READY_FOR_CHARGING: Charging.ChargingState.OFF,
     AudiCharging.AudiChargingState.READY_FOR_CHARGING: Charging.ChargingState.READY_FOR_CHARGING,
     AudiCharging.AudiChargingState.CONSERVATION: Charging.ChargingState.CONSERVATION,
+    # TODO: CHARGE_PURPOSE_REACHED means charging is complete/finished, not ready for charging
+    # Framework needs extension to support COMPLETE/FINISHED state (see GitHub issue)
     AudiCharging.AudiChargingState.CHARGE_PURPOSE_REACHED_NOT_CONSERVATION_CHARGING: Charging.ChargingState.READY_FOR_CHARGING,
     AudiCharging.AudiChargingState.CHARGE_PURPOSE_REACHED_CONSERVATION: Charging.ChargingState.CONSERVATION,
     AudiCharging.AudiChargingState.CHARGING: Charging.ChargingState.CHARGING,
