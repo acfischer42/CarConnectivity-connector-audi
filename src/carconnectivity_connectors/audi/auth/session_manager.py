@@ -7,12 +7,11 @@ import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Tuple
 
+from carconnectivity_connectors.audi.auth.audi_web_session import AudiWebSession
 from carconnectivity_connectors.audi.auth.we_connect_session_audi import WeConnectSession
 
 if TYPE_CHECKING:
     from typing import Any, Dict
-
-from carconnectivity_connectors.audi.auth.audi_web_session import AudiWebSession
 
 LOG = logging.getLogger("carconnectivity.connectors.audi.auth")
 

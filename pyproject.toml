@@ -124,5 +124,7 @@ exclude_dirs = ["tests", "test"]
 skips = [
     "B101",  # assert_used - allow asserts (used for type checking)
     "B105",  # hardcoded_password_string - URLs are not passwords
+    "B404",  # import_subprocess - needed for WAF bypass (curl)
+    "B603",  # subprocess_without_shell_equals_true - controlled input for curl
     "B601",  # paramiko_calls - if using paramiko
 ]

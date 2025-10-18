@@ -6,7 +6,10 @@ import json
 import logging
 import netrc
 import os
+import re
+import subprocess
 import threading
+import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -121,16 +124,16 @@ def safe_get_timestamp(
     """
     if field_name not in data_dict or data_dict[field_name] is None:
         if default_timestamp is not None:
-            LOG.debug(f"Missing {field_name}, using default timestamp")
+            LOG.debug("Missing %s, using default timestamp", field_name)
             return default_timestamp
         else:
-            LOG.warning(f"Missing {field_name} and no default provided, using current time")
+            LOG.warning("Missing %s and no default provided, using current time", field_name)
             return datetime.now(timezone.utc)
 
     try:
         return robust_time_parse(data_dict[field_name])
     except Exception as e:
-        LOG.warning(f"Failed to parse {field_name}: {e}, using current time")
+        LOG.warning("Failed to parse %s: %s, using current time", field_name, e)
         return datetime.now(timezone.utc)
 
 
@@ -259,7 +262,7 @@ class Connector(BaseConnector):
         try:
             self.session.refresh()
         except Exception as e:
-            LOG.warning(f"Initial token refresh failed, continuing: {e}")
+            LOG.warning("Initial token refresh failed, continuing: %s", e)
             # Continue without failing - the session should still work for new requests
 
         self._elapsed: List[timedelta] = []
@@ -614,13 +617,13 @@ class Connector(BaseConnector):
                             # This endpoint was proven to return actual vehicle images from website traffic
                             image_url = f"https://media.audi.com/is/image/audi/global/assets/vehicles/{vin}?width=800"
 
-                            LOG.debug(f"Trying vehicle images URL: {image_url}")
+                            LOG.debug("Trying vehicle images URL: %s", image_url)
                             # Use direct HTTP request for binary image data (not JSON API)
                             try:
                                 image_response = self.session.get(image_url, headers=image_headers, stream=True)
                                 if image_response.status_code == requests.codes["ok"]:
                                     img = Image.open(image_response.raw)
-                                    LOG.info(f"Successfully loaded vehicle image from {image_url}")
+                                    LOG.info("Successfully loaded vehicle image from %s", image_url)
 
                                     # Cache the image if caching is enabled
                                     if self.session.cache is not None:
@@ -644,7 +647,7 @@ class Connector(BaseConnector):
                                             value=img,
                                             tags={"carconnectivity"},
                                         )
-                                    LOG.info(f"Vehicle image successfully set for VIN {vin}")
+                                    LOG.info("Vehicle image successfully set for VIN %s", vin)
                                 elif image_response.status_code == requests.codes["unauthorized"]:
                                     LOG.info("Server asks for new authorization for image download")
                                     self.session.login()
@@ -652,7 +655,9 @@ class Connector(BaseConnector):
                                     image_response = self.session.get(image_url, headers=image_headers, stream=True)
                                     if image_response.status_code == requests.codes["ok"]:
                                         img = Image.open(image_response.raw)
-                                        LOG.info(f"Successfully loaded vehicle image from {image_url} after re-authentication")
+                                        LOG.info(
+                                            "Successfully loaded vehicle image from %s after re-authentication", image_url
+                                        )
 
                                         # Cache and store the image
                                         if self.session.cache is not None:
@@ -673,26 +678,27 @@ class Connector(BaseConnector):
                                                 value=img,
                                                 tags={"carconnectivity"},
                                             )
-                                        LOG.info(f"Vehicle image successfully set for VIN {vin} after re-authentication")
+                                        LOG.info("Vehicle image successfully set for VIN %s after re-authentication", vin)
                                     else:
                                         LOG.warning(
-                                            f"Failed to load vehicle image from {image_url} even after "
-                                            f"re-authentication: {image_response.status_code}"
+                                            "Failed to load vehicle image from %s even after " "re-authentication: %s",
+                                            image_url,
+                                            image_response.status_code,
                                         )
                                 else:
                                     LOG.warning(
-                                        f"Failed to load vehicle image from {image_url}: HTTP {image_response.status_code}"
+                                        "Failed to load vehicle image from %s: HTTP %s", image_url, image_response.status_code
                                     )
                             except requests.exceptions.ConnectionError as connection_error:
-                                LOG.warning(f"Connection error while fetching vehicle image: {connection_error}")
+                                LOG.warning("Connection error while fetching vehicle image: %s", connection_error)
                             except requests.exceptions.ChunkedEncodingError as chunked_encoding_error:
-                                LOG.warning(f"Chunked encoding error while fetching vehicle image: {chunked_encoding_error}")
+                                LOG.warning("Chunked encoding error while fetching vehicle image: %s", chunked_encoding_error)
                             except requests.exceptions.ReadTimeout as timeout_error:
-                                LOG.warning(f"Timeout while fetching vehicle image: {timeout_error}")
+                                LOG.warning("Timeout while fetching vehicle image: %s", timeout_error)
                             except requests.exceptions.RetryError as retry_error:
-                                LOG.warning(f"Retry error while fetching vehicle image: {retry_error}")
+                                LOG.warning("Retry error while fetching vehicle image: %s", retry_error)
                             except Exception as e:
-                                LOG.warning(f"Unexpected error while processing vehicle image: {e}")
+                                LOG.warning("Unexpected error while processing vehicle image: %s", e)
                     else:
                         raise APIError("Could not fetch vehicle data, VIN missing")
         for vin in set(garage.list_vehicle_vins()) - seen_vehicle_vins:
@@ -781,17 +787,17 @@ class Connector(BaseConnector):
                 self._process_vehicle_status_data(vehicle, data)
             except APIError as e:
                 if "carCapturedTimestamp missing" in str(e):
-                    LOG.warning(f"Timestamp issue in vehicle status data for {vin}: {e}")
+                    LOG.warning("Timestamp issue in vehicle status data for %s: %s", vin, e)
                     LOG.info("Continuing with partial data processing...")
                     # Try to process what we can without strict timestamp requirements
                     try:
                         self._process_vehicle_status_data_lenient(vehicle, data)
                     except Exception as fallback_error:
-                        LOG.error(f"Fallback processing also failed for {vin}: {fallback_error}")
+                        LOG.error("Fallback processing also failed for %s: %s", vin, fallback_error)
                 else:
                     raise e
             except Exception as e:
-                LOG.error(f"Unexpected error processing vehicle status for {vin}: {e}")
+                LOG.error("Unexpected error processing vehicle status for %s: %s", vin, e)
                 raise e
 
     def _process_vehicle_status_data(self, vehicle: AudiVehicle, data: Dict[str, Any]) -> None:
@@ -2604,7 +2610,7 @@ class Connector(BaseConnector):
         if vin is None:
             return
 
-        LOG.info(f"Processing vehicle data in lenient mode for {vin}")
+        LOG.info("Processing vehicle data in lenient mode for %s", vin)
 
         # Just process basic data that we can extract without strict timestamp requirements
         try:
@@ -2628,10 +2634,10 @@ class Connector(BaseConnector):
                                         GenericVehicle.ConnectionState.OFFLINE
                                     )  # pylint: disable=protected-access
 
-            LOG.info(f"Successfully processed basic data for {vin} in lenient mode")
+            LOG.info("Successfully processed basic data for %s in lenient mode", vin)
 
         except Exception as e:
-            LOG.warning(f"Even lenient processing failed for {vin}: {e}")
+            LOG.warning("Even lenient processing failed for %s: %s", vin, e)
             # Set some basic defaults
             vehicle.connection_state._set_value(GenericVehicle.ConnectionState.UNKNOWN)  # pylint: disable=protected-access
 
@@ -2707,10 +2713,6 @@ class Connector(BaseConnector):
         Raises:
             ValueError: If the vehicle's VIN is None.
         """
-        import re
-        import subprocess
-        import time
-
         vin = vehicle.vin.value
         if vin is None:
             raise ValueError("vehicle.vin cannot be None")
@@ -2719,14 +2721,14 @@ class Connector(BaseConnector):
         if hasattr(self, "_last_owners_manual_request"):
             elapsed = time.time() - self._last_owners_manual_request
             if elapsed < 60:
-                LOG.debug(f"WAF cooldown active for owners manual API ({60-elapsed:.0f}s remaining), skipping vehicle images")
+                LOG.debug("WAF cooldown active for owners manual API (%.0fs remaining), skipping vehicle images", 60 - elapsed)
                 return
 
         try:
             # Step 1: Get authentication token using curl (bypasses Python TLS fingerprint detection)
             start_url = f"https://ownersmanual.audi.com/web/rdw/start?vin={vin}&language=de_DE"
 
-            LOG.debug(f"Fetching owners manual token for VIN {vin} (using curl)")
+            LOG.debug("Fetching owners manual token for VIN %s (using curl)", vin)
 
             curl_cmd = [
                 "curl",
@@ -2739,12 +2741,12 @@ class Connector(BaseConnector):
                 start_url,
             ]
 
-            result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=15)
+            result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=15, check=False)
             self._last_owners_manual_request = time.time()
 
             # Check for WAF challenge in response
             if "x-amzn-waf-action: challenge" in result.stdout.lower():
-                LOG.info(f"AWS WAF challenge detected for owners manual API (VIN: {vin})")
+                LOG.info("AWS WAF challenge detected for owners manual API (VIN: %s)", vin)
                 LOG.info(
                     "Vehicle images require browser access or cooldown period - visit https://ownersmanual.audi.com manually"
                 )
@@ -2754,13 +2756,13 @@ class Connector(BaseConnector):
             token_match = re.search(r"set-cookie:\s*web_access_token=([^;]+)", result.stdout, re.IGNORECASE)
 
             if not token_match:
-                LOG.warning(f"Could not retrieve owners manual token for VIN {vin}")
-                LOG.debug(f"curl exit code: {result.returncode}, stdout length: {len(result.stdout)}")
+                LOG.warning("Could not retrieve owners manual token for VIN %s", vin)
+                LOG.debug("curl exit code: %s, stdout length: %s", result.returncode, len(result.stdout))
                 return
 
             web_access_token = token_match.group(1)
 
-            LOG.debug(f"Successfully retrieved owners manual token for VIN {vin} ({len(web_access_token)} chars)")
+            LOG.debug("Successfully retrieved owners manual token for VIN %s (%s chars)", vin, len(web_access_token))
 
             # Step 2: Fetch image URLs using the token (back to requests library, token is valid)
             images_url = "https://ownersmanual.audi.com/rdw/res/v1/imagesurl"
@@ -2773,12 +2775,10 @@ class Connector(BaseConnector):
                 "Referer": "https://ownersmanual.audi.com/app/rdw/?language=de_DE",
             }
 
-            LOG.debug(f"Fetching vehicle images for VIN {vin}")
+            LOG.debug("Fetching vehicle images for VIN %s", vin)
 
             # Use requests for this call (token auth, not cookie-based)
-            import requests as req
-
-            images_response = req.get(images_url, headers=image_headers, timeout=10)
+            images_response = requests.get(images_url, headers=image_headers, timeout=10)
 
             if images_response.status_code == requests.codes["ok"]:
                 images_data = images_response.json()
@@ -2792,8 +2792,8 @@ class Connector(BaseConnector):
                         item["config"]: item["url"] for item in images_data["urlResult"] if "config" in item and "url" in item
                     }
 
-                    LOG.info(f"Successfully fetched {len(image_urls)} vehicle image URLs for VIN {vin}")
-                    LOG.debug(f"Available image configs: {', '.join(image_urls.keys())}")
+                    LOG.info("Successfully fetched %s vehicle image URLs for VIN %s", len(image_urls), vin)
+                    LOG.debug("Available image configs: %s", ", ".join(image_urls.keys()))
 
                     # Download and store actual images if PIL is available
                     if SUPPORT_IMAGES:
@@ -2802,7 +2802,7 @@ class Connector(BaseConnector):
                         for config, url in image_urls.items():
                             try:
                                 # Download the WebP image
-                                img_response = req.get(url, timeout=10, stream=True)
+                                img_response = requests.get(url, timeout=10, stream=True)
                                 if img_response.status_code == 200:
                                     # Open as PIL Image
                                     img = Image.open(img_response.raw)
@@ -2822,9 +2822,11 @@ class Connector(BaseConnector):
 
                                     downloaded_count += 1
                                 else:
-                                    LOG.debug(f"Failed to download image {config}: HTTP {img_response.status_code}")
+                                    LOG.debug("Failed to download image %s: HTTP %s", config, img_response.status_code)
                             except Exception as e:
-                                LOG.debug(f"Error downloading image {config}: {e}")
+                                import traceback
+
+                                LOG.debug("Error downloading image %s: %s\n%s", config, e, traceback.format_exc())
 
                         # Set car_picture alias: prefer first exterior (abo2n*) image, fallback to any
                         car_picture_config = None
@@ -2847,19 +2849,21 @@ class Connector(BaseConnector):
                                 value=source_image.value,
                                 tags={"connector_custom", "owners_manual", "primary"},
                             )
-                            LOG.info(f"Set car_picture alias to {car_picture_config}")
+                            LOG.info("Set car_picture alias to %s", car_picture_config)
 
-                        LOG.info(f"Successfully downloaded {downloaded_count}/{len(image_urls)} vehicle images for VIN {vin}")
+                        LOG.info(
+                            "Successfully downloaded %s/%s vehicle images for VIN %s", downloaded_count, len(image_urls), vin
+                        )
                     else:
                         # PIL not available - skip image downloads
-                        LOG.warning(f"PIL/Pillow not available, skipping image downloads for VIN {vin}")
+                        LOG.warning("PIL/Pillow not available, skipping image downloads for VIN %s", vin)
                 else:
-                    LOG.warning(f"No urlResult found in images response for VIN {vin}")
+                    LOG.warning("No urlResult found in images response for VIN %s", vin)
             else:
-                LOG.warning(f"Failed to fetch vehicle images for VIN {vin}: HTTP {images_response.status_code}")
+                LOG.warning("Failed to fetch vehicle images for VIN %s: HTTP %s", vin, images_response.status_code)
 
         except Exception as e:
-            LOG.warning(f"Error fetching vehicle images for VIN {vin}: {e}")
+            LOG.warning("Error fetching vehicle images for VIN %s: %s", vin, e)
 
     def _record_elapsed(self, elapsed: timedelta) -> None:
         """
