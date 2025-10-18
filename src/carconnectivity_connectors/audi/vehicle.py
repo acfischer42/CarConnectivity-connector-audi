@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from carconnectivity.attributes import BooleanAttribute
+from carconnectivity.attributes import BooleanAttribute, GenericAttribute
+from carconnectivity.objects import GenericObject
 from carconnectivity.vehicle import CombustionVehicle, ElectricVehicle, GenericVehicle, HybridVehicle
 
 from carconnectivity_connectors.audi.capability import Capabilities
@@ -24,6 +25,38 @@ if TYPE_CHECKING:
 
     from carconnectivity.garage import Garage
     from carconnectivity_connectors.base.connector import BaseConnector
+
+
+class GarageRawAPI(GenericObject):
+    """
+    Container for raw API responses from Audi Connect endpoints at garage level.
+
+    This provides access to the raw JSON responses from different API endpoints
+    through standardized paths like /garage/rawAPI/vehicles.
+    """
+
+    def __init__(self, garage) -> None:
+        super().__init__(object_id="rawAPI", parent=garage)
+
+        # Raw API response storage for garage-level endpoints
+        self.vehicles = GenericAttribute("vehicles", self, value=None, tags={"connector_custom", "rawapi"})
+
+
+class RawAPI(GenericObject):
+    """
+    Container for raw API responses from Audi Connect endpoints.
+
+    This provides access to the raw JSON responses from different API endpoints
+    through standardized paths like /rawAPI/selectivestatus or /rawAPI/parkingposition.
+    """
+
+    def __init__(self, vehicle: AudiVehicle) -> None:
+        super().__init__(object_id="rawAPI", parent=vehicle)
+
+        # Raw API response storage - vehicle-specific endpoints only
+        self.selectivestatus = GenericAttribute("selectivestatus", self, value=None, tags={"connector_custom", "rawapi"})
+        self.parkingposition = GenericAttribute("parkingposition", self, value=None, tags={"connector_custom", "rawapi"})
+        self.vehicle_images = GenericAttribute("vehicle_images", self, value=None, tags={"connector_custom", "rawapi"})
 
 
 class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attributes
@@ -51,6 +84,8 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
             self.capabilities.parent = self
             self.is_active: BooleanAttribute = origin.is_active
             self.is_active.parent = self
+            self.rawAPI: RawAPI = origin.rawAPI
+            self.rawAPI.parent = self
             if SUPPORT_IMAGES:
                 self._car_images = origin._car_images
         else:
@@ -58,6 +93,7 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
             self.capabilities: Capabilities = Capabilities(vehicle=self)
             self.climatization = AudiClimatization(vehicle=self, origin=self.climatization)
             self.is_active = BooleanAttribute(name="is_active", parent=self, tags={"connector_custom"})
+            self.rawAPI: RawAPI = RawAPI(vehicle=self)
             if SUPPORT_IMAGES:
                 self._car_images: Dict[str, Image.Image] = {}
         self.manufacturer._set_value(value="Audi")  # pylint: disable=protected-access

@@ -267,7 +267,7 @@ class WeConnectSession(AudiWebSession):
         )
         if token_response.status_code == requests.codes["unauthorized"]:
             raise AuthenticationError("Refreshing tokens failed: Server requests new authorization")
-        elif token_response.status_code in (
+        if token_response.status_code in (
             requests.codes["internal_server_error"],
             requests.codes["service_unavailable"],
             requests.codes["gateway_timeout"],
@@ -275,7 +275,7 @@ class WeConnectSession(AudiWebSession):
             raise TemporaryAuthenticationError(
                 "Token could not be refreshed due to temporary WeConnect failure: {tokenResponse.status_code}"
             )
-        elif token_response.status_code == requests.codes["ok"]:
+        if token_response.status_code == requests.codes["ok"]:
             # parse new tokens from response
             self.parse_from_body(token_response.text)
             if self.token is not None and "refresh_token" not in self.token:

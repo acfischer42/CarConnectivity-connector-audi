@@ -1,0 +1,98 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+  schedule:
+    # Run Snyk scans weekly on Tuesdays at 10 AM UTC
+    - cron: '0 10 * * 2'
+
+jobs:
+  snyk-dependency-scan:
+    name: Snyk Dependency Vulnerabilities
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Snyk to check for dependency vulnerabilities
+        uses: snyk/actions/python-3.12@master
+        continue-on-error: true # To make sure that SARIF upload gets called
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --sarif-file-output=snyk.sarif
+
+      - name: Check for SARIF file
+        if: always()
+        run: |
+          if [ -f "snyk.sarif" ]; then
+            echo "✅ SARIF file generated successfully"
+            ls -la snyk.sarif
+          else
+            echo "❌ No SARIF file found - this may happen when no vulnerabilities are found or authentication fails"
+          fi
+
+      - name: Upload dependency scan results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('snyk.sarif') != ''
+        with:
+          sarif_file: snyk.sarif
+
+  snyk-code-scan:
+    name: Snyk Code Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Snyk Code to check for security issues
+        uses: snyk/actions/python-3.12@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code test
+          args: --severity-threshold=high --sarif-file-output=snyk-code.sarif
+
+      - name: Upload code scan results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('snyk-code.sarif') != ''
+        with:
+          sarif_file: snyk-code.sarif
+
+  snyk-iac-scan:
+    name: Snyk Infrastructure as Code
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    if: github.event_name != 'schedule' # Skip IaC scan on scheduled runs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Snyk IaC to check for configuration issues
+        uses: snyk/actions/iac@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --sarif-file-output=snyk-iac.sarif
+
+      - name: Upload IaC scan results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('snyk-iac.sarif') != ''
+        with:
+          sarif_file: snyk-iac.sarif

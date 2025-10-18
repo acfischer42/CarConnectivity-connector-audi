@@ -2,7 +2,7 @@ name: Security and Code Quality
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main]
   pull_request:
     branches: [ main, dev ]
   schedule:
@@ -89,12 +89,6 @@ jobs:
           # Set to false to fail the build on vulnerabilities, or true to continue
           continue-on-error: false
 
-      - name: Alternative dependency audit (pip-audit)
-        run: |
-          pip install pip-audit
-          pip-audit --desc --output pip-audit-report.json --format=json || true
-          pip-audit --desc
-
       - name: Upload security reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -102,7 +96,6 @@ jobs:
           name: security-reports-py${{ matrix.python-version }}
           path: |
             bandit-report.json
-            pip-audit-report.json
           # Note: Safety reports are handled by the Safety Action
 
   dependency-review:
@@ -117,30 +110,6 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
-
-  codeql-analysis:
-    name: CodeQL Security Analysis
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-          queries: security-extended,security-and-quality
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
 
   build-and-test:
     name: Build and Test
@@ -161,7 +130,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build wheel setuptools
+          pip install build wheel "setuptools>=78.1.1"  # Security: Fix PYSEC-2022-43012, PYSEC-2025-49
 
       - name: Build package
         run: |
