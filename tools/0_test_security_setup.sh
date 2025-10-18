@@ -12,6 +12,9 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Track failures
+FAILURES=0
+
 print_header() {
     echo -e "\n${BLUE}========================================${NC}"
     echo -e "${BLUE} $1${NC}"
@@ -48,6 +51,23 @@ if [ ! -d ".git" ]; then
     print_error "Not in a git repository. Please run from the project root."
     exit 1
 fi
+
+# Create separate test virtual environment
+TEST_VENV="$PROJECT_ROOT/test-venv"
+print_header "Setting Up Test Environment"
+print_status "Creating separate test virtual environment: $TEST_VENV"
+
+if [ -d "$TEST_VENV" ]; then
+    print_status "Removing existing test virtual environment..."
+    rm -rf "$TEST_VENV"
+fi
+
+python3 -m venv "$TEST_VENV"
+print_success "Test virtual environment created"
+
+# Activate test virtual environment
+source "$TEST_VENV/bin/activate"
+print_status "Using test virtual environment (isolated from development .venv)"
 
 # Install testing dependencies
 print_header "Installing Test Dependencies"
@@ -139,12 +159,15 @@ print_header "5. Testing Security Analysis"
 print_status "Testing bandit security analysis..."
 if command -v bandit &> /dev/null; then
     echo "Running bandit security scan with configuration..."
-    bandit -r src/ -f txt --configfile pyproject.toml || {
+    if bandit -r src/ -f txt --configfile pyproject.toml; then
+        print_success "bandit security scan completed - no issues found"
+    else
         print_warning "Security issues found. Review the output above."
-    }
-    print_success "bandit security scan completed"
+        FAILURES=$((FAILURES + 1))
+    fi
 else
     print_error "bandit not installed"
+    FAILURES=$((FAILURES + 1))
 fi
 
 print_status "Testing dependency vulnerability scan (safety)..."
@@ -199,14 +222,14 @@ print_header "7. Testing Package Build"
 print_status "Testing package build..."
 if [ -f "pyproject.toml" ]; then
     echo "Building package..."
-    python -m pip install --upgrade build
+    pip install --upgrade build
     python -m build || {
         print_error "Package build failed"
         exit 1
     }
     print_success "Package built successfully"
 
-    print_status "Testing package installation..."
+    print_status "Testing package installation in test environment..."
     # Install only the latest wheel file to avoid version conflicts
     latest_wheel=$(ls -t dist/*.whl | head -n1)
     pip install "$latest_wheel" --force-reinstall || {
@@ -219,7 +242,7 @@ if [ -f "pyproject.toml" ]; then
         print_error "Package import failed"
         exit 1
     }
-    print_success "Package installation and import successful"
+    print_success "Package installation and import successful (in test-venv)"
 else
     print_error "pyproject.toml not found"
 fi
@@ -250,20 +273,58 @@ done
 # Summary
 print_header "Test Results Summary"
 
-echo "✅ GitLeaks: $(if [ -f .gitleaks.toml ]; then echo 'No secrets detected'; else echo 'Config missing'; fi)"
-echo "✅ Code Formatting: $(if command -v black >/dev/null 2>&1; then echo 'All files properly formatted'; else echo 'Tool missing'; fi)"
-echo "✅ Import Sorting: $(if command -v isort >/dev/null 2>&1; then echo 'All imports properly sorted'; else echo 'Tool missing'; fi)"
-echo "✅ Code Linting: $(if command -v flake8 >/dev/null 2>&1; then echo 'Linting rules configured and active'; else echo 'Tool missing'; fi)"
-echo "✅ Type Checking: $(if [ "$TYPE_CHECKING_ENABLED" = true ]; then echo 'mypy configured and active'; else echo 'Disabled for legacy codebase'; fi)"
-echo "✅ Security Analysis: $(if command -v bandit >/dev/null 2>&1; then echo 'No security issues detected'; else echo 'Tool missing'; fi)"
-echo "✅ Dependency Scan (Safety): $(if command -v safety >/dev/null 2>&1; then echo 'No vulnerable dependencies'; else echo 'Tool missing'; fi)"
-echo "✅ Dependency Scan (pip-audit): $(if command -v pip-audit >/dev/null 2>&1; then echo 'Base packages scanned'; else echo 'Tool missing'; fi)"
-echo "✅ Pre-commit Hooks: $(if [ -f .pre-commit-config.yaml ]; then echo 'Configured and ready'; else echo 'Config missing'; fi)"
-echo "✅ Package Build: $(if [ -f pyproject.toml ]; then echo 'Build configuration ready'; else echo 'Config missing'; fi)"
+if [ $FAILURES -eq 0 ]; then
+    echo "✅ GitLeaks: No secrets detected"
+    echo "✅ Code Formatting: All files properly formatted"
+    echo "✅ Import Sorting: All imports properly sorted"
+    echo "✅ Code Linting: No critical issues found"
+    echo "✅ Type Checking: Disabled for legacy codebase"
+    echo "✅ Security Analysis: No security issues detected"
+    echo "✅ Dependency Scan (Safety): Completed"
+    echo "✅ Dependency Scan (pip-audit): Completed"
+    echo "✅ Pre-commit Hooks: Configured and ready"
+    echo "✅ Package Build: Build configuration ready"
+    echo ""
+    print_success "🎉 All tests passed! Ready for release."
+else
+    echo "⚠️  GitLeaks: Check output above"
+    echo "⚠️  Code Formatting: Check output above"
+    echo "⚠️  Import Sorting: Check output above"
+    echo "⚠️  Code Linting: Check output above"
+    echo "⚠️  Type Checking: Disabled for legacy codebase"
+    echo "⚠️  Security Analysis: $FAILURES issue(s) found"
+    echo "⚠️  Dependency Scan (Safety): Check output above"
+    echo "⚠️  Dependency Scan (pip-audit): Check output above"
+    echo "⚠️  Pre-commit Hooks: Check output above"
+    echo "⚠️  Package Build: Check output above"
+    echo ""
+    print_error "❌ $FAILURES test(s) failed. Review the output above and fix issues before release."
+fi
+
 echo ""
 print_status "🚀 Next Steps:"
 echo "• Use './tools/1_build_and_test.sh' for complete development workflow"
 echo "• This script includes all security checks, formatting, and testing"
 echo "• For CI/CD: Push changes to trigger GitHub Actions workflows"
 echo ""
-print_success "Security and quality setup is complete and fully integrated!"
+echo "📝 Note: This test used a separate test-venv to avoid conflicts with .venv"
+echo "• Development environment (.venv): For daily development with editable install"
+echo "• Test environment (test-venv): For isolated testing and package builds"
+echo ""
+
+# Deactivate test virtual environment
+deactivate 2>/dev/null || true
+
+# Optionally clean up test environment
+if [ -d "$TEST_VENV" ]; then
+    print_status "Test virtual environment location: $TEST_VENV"
+    print_status "To clean up: rm -rf $TEST_VENV"
+fi
+
+if [ $FAILURES -eq 0 ]; then
+    print_success "Security and quality setup is complete and fully integrated!"
+    exit 0
+else
+    print_error "Please fix the issues above before proceeding with release."
+    exit 1
+fi
