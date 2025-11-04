@@ -6,8 +6,6 @@ import json
 import logging
 import netrc
 import os
-import re
-import subprocess
 import threading
 import time
 import traceback
@@ -747,33 +745,74 @@ class Connector(BaseConnector):
         vin = vehicle.vin.value
         if vin is None:
             raise ValueError("vehicle.vin cannot be None")
-        known_capabilities: list[str] = [
-            "access",
-            "activeventilation",
-            "automation",
-            "auxiliaryheating",
-            "userCapabilities",
-            "charging",
-            "chargingProfiles",
-            "batteryChargingCare",
-            "climatisation",
-            "climatisationTimers",
-            "departureTimers",
-            "fuelStatus",
-            "vehicleLights",
-            "lvBattery",
-            "readiness",
-            "vehicleHealthInspection",
-            "vehicleHealthWarnings",
-            "oilLevel",
-            "measurements",
-            "batterySupport",
-        ]
+        # Build jobs dynamically from vehicle.capabilities (populated in fetch_vehicles)
+        # Optionally refresh capability metadata from the per-vehicle /capabilities endpoint
+        try:
+            dynamic_enabled = bool(self.active_config.get("dynamic_capabilities", False))
+        except Exception:
+            dynamic_enabled = False
+
+        if dynamic_enabled:
+            try:
+                cap_url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/capabilities"
+                LOG.debug("Refreshing capability metadata from %s", cap_url)
+                resp = self._fetch_data(cap_url, self.session)
+                if resp is not None:
+                    # /capabilities may return {'capabilities': [ { 'id': 'foo', ...}, ... ] }
+                    # or a dict keyed by id. Normalize into a list of capability dicts.
+                    runtime_caps = []
+                    if isinstance(resp, dict) and "capabilities" in resp and isinstance(resp["capabilities"], list):
+                        runtime_caps = resp["capabilities"]
+                    elif isinstance(resp, list):
+                        runtime_caps = resp
+                    elif isinstance(resp, dict):
+                        # dict keyed by id -> convert values to list
+                        runtime_caps = [v for k, v in resp.items() if isinstance(v, dict)]
+
+                    for cap in runtime_caps:
+                        if not isinstance(cap, dict):
+                            continue
+                        cap_id = cap.get("id") or cap.get("capabilityId")
+                        if not cap_id:
+                            # Some responses may use the key as the id - skip those handled above
+                            continue
+                        # Ensure capability object exists on vehicle
+                        if vehicle.capabilities.has_capability(cap_id):
+                            capability_obj = vehicle.capabilities.get_capability(cap_id)
+                        else:
+                            capability_obj = Capability(capability_id=cap_id, capabilities=vehicle.capabilities)
+                            vehicle.capabilities.add_capability(cap_id, capability_obj)
+
+                        # Populate known metadata (expiration, enabled/userDisablingAllowed, status)
+                        if "expirationDate" in cap and cap.get("expirationDate") is not None:
+                            try:
+                                capability_obj.expiration_date._set_value(robust_time_parse(cap.get("expirationDate")))
+                            except Exception:
+                                capability_obj.expiration_date._set_value(None)
+                        if "userDisablingAllowed" in cap:
+                            capability_obj.user_disabling_allowed._set_value(cap.get("userDisablingAllowed"))
+                        if "status" in cap:
+                            # status may be a list of strings
+                            capability_obj.status.value.clear()
+                            statuses = cap.get("status")
+                            if isinstance(statuses, list):
+                                for s in statuses:
+                                    try:
+                                        capability_obj.status.value.append(Capability.Status(s))
+                                    except Exception:
+                                        capability_obj.status.value.append(Capability.Status.UNKNOWN)
+
+                        # store any extra keys for debugging
+                        log_extra_keys(LOG_API, "capability", cap, {"id", "expirationDate", "userDisablingAllowed", "status"})
+            except Exception as e:
+                LOG.warning("Failed to refresh capability metadata for %s: %s", vin, e)
+
+        # Derive jobs from currently known vehicle capabilities
         jobs: list[str] = []
-        for capability_id in known_capabilities:
-            capability: Optional[Capability] = vehicle.capabilities.get_capability(capability_id)
+        for cap_id in vehicle.capabilities.capabilities.keys():
+            capability: Optional[Capability] = vehicle.capabilities.get_capability(cap_id)
             if capability is not None and capability.enabled and len(capability.status.value) == 0:
-                jobs.append(capability_id)
+                jobs.append(cap_id)
         if len(jobs) == 0:
             LOG.warning("No capabilities enabled for vehicle %s", vin)
             return
@@ -2699,13 +2738,12 @@ class Connector(BaseConnector):
         Fetches vehicle images from the Audi owners manual API.
 
         This method:
-        1. Calls /web/rdw/start with VIN to get authentication tokens (using curl to bypass WAF)
+        1. Calls /web/rdw/start with VIN to get authentication tokens using requests
         2. Extracts web_access_token from Set-Cookie headers
         3. Uses the token to call /rdw/res/v1/imagesurl
         4. Stores the image URLs in vehicle.rawAPI.vehicle_images
 
-        Note: Uses curl subprocess to avoid WAF TLS fingerprint detection.
-        WAF enforces ~60s cooldown between requests.
+        Note: WAF enforces ~60s cooldown between requests.
 
         Args:
             vehicle (AudiVehicle): The Audi vehicle object whose images are to be fetched.
@@ -2725,46 +2763,87 @@ class Connector(BaseConnector):
                 return
 
         try:
-            # Step 1: Get authentication token using curl (bypasses Python TLS fingerprint detection)
+            # Step 1: Get authentication token using requests with proper headers
             start_url = f"https://ownersmanual.audi.com/web/rdw/start?vin={vin}&language=de_DE"
 
-            LOG.debug("Fetching owners manual token for VIN %s (using curl)", vin)
+            LOG.debug("Fetching owners manual token for VIN %s", vin)
 
-            curl_cmd = [
-                "curl",
-                "-i",
-                "-L",
-                "--max-time",
-                "10",
-                "-A",
-                "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0",
-                start_url,
-            ]
+            # Headers to mimic Firefox browser
+            start_headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0",
+            }
 
-            result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=15, check=False)
+            # Use a dedicated session so cookies set during redirects are preserved
+            owners_session = requests.Session()
+            # populate session headers to mimic a browser
+            owners_session.headers.update(start_headers)
+            start_response = owners_session.get(start_url, timeout=10, allow_redirects=True)
             self._last_owners_manual_request = time.time()
 
             # Check for WAF challenge in response
-            if "x-amzn-waf-action: challenge" in result.stdout.lower():
+            if "x-amzn-waf-action: challenge" in start_response.headers.get("x-amzn-waf-action", "").lower():
                 LOG.info("AWS WAF challenge detected for owners manual API (VIN: %s)", vin)
                 LOG.info(
                     "Vehicle images require browser access or cooldown period - visit https://ownersmanual.audi.com manually"
                 )
                 return
 
-            # Extract web_access_token from Set-Cookie header
-            token_match = re.search(r"set-cookie:\s*web_access_token=([^;]+)", result.stdout, re.IGNORECASE)
+            # Check if this is an HTML page indicating we need a different approach
+            if start_response.headers.get("Content-Type", "").startswith("text/html"):
+                LOG.warning("Received HTML page instead of authentication response - may need different API approach")
+                LOG.debug("HTML content suggests this might be a SPA (Single Page Application) that needs different handling")
 
-            if not token_match:
+                # Try to look for any JavaScript that might contain API endpoints
+                if "baseScript" in start_response.text or 'folder = "abo2-web"' in start_response.text:
+                    LOG.info("Detected Audi owners manual web application - this might require different authentication")
+                    LOG.info("The API might have changed or require browser-like session handling")
+
+            # Extract web_access_token from session cookies (preserves cookies from redirects)
+            web_access_token = None
+            for cookie in owners_session.cookies:
+                LOG.debug(
+                    "Found cookie (session): %s = %s",
+                    cookie.name,
+                    cookie.value[:50] + "..." if len(cookie.value) > 50 else cookie.value,
+                )
+                if cookie.name == "web_access_token":
+                    web_access_token = cookie.value
+                    break
+
+            # Fallback: also check the final response cookies
+            if not web_access_token:
+                for cookie in start_response.cookies:
+                    LOG.debug(
+                        "Found cookie (response): %s = %s",
+                        cookie.name,
+                        cookie.value[:50] + "..." if len(cookie.value) > 50 else cookie.value,
+                    )
+                    if cookie.name == "web_access_token":
+                        web_access_token = cookie.value
+                        break
+
+            if not web_access_token:
                 LOG.warning("Could not retrieve owners manual token for VIN %s", vin)
-                LOG.debug("curl exit code: %s, stdout length: %s", result.returncode, len(result.stdout))
+                LOG.warning(
+                    "Response status: %s, cookies: %s", start_response.status_code, list(start_response.cookies.keys())
+                )
+                LOG.warning("This might indicate the API endpoint has changed or requires different authentication")
                 return
-
-            web_access_token = token_match.group(1)
 
             LOG.debug("Successfully retrieved owners manual token for VIN %s (%s chars)", vin, len(web_access_token))
 
-            # Step 2: Fetch image URLs using the token (back to requests library, token is valid)
+            # Step 2: Fetch image URLs using the token
             images_url = "https://ownersmanual.audi.com/rdw/res/v1/imagesurl"
             image_headers = {
                 "Accept": "application/json, text/plain, */*",
@@ -2777,8 +2856,8 @@ class Connector(BaseConnector):
 
             LOG.debug("Fetching vehicle images for VIN %s", vin)
 
-            # Use requests for this call (token auth, not cookie-based)
-            images_response = requests.get(images_url, headers=image_headers, timeout=10)
+            # Use the same owners_session to call the images API (session preserves cookies); also include Bearer token
+            images_response = owners_session.get(images_url, headers=image_headers, timeout=10)
 
             if images_response.status_code == requests.codes["ok"]:
                 images_data = images_response.json()
