@@ -39,7 +39,8 @@ These are the valid options for the Audi Connector:
                     "spin": "1234", // S-Pin used for some special commands like locking/unlocking
                     "netrc": "~/.netrc", // Optional: netrc file if to be used for passwords
                     "max_age": 300, // Cache requests to the server for MAX_AGE seconds
-                    "hide_vins": ["WUA12345678901234"] // Optional: Don't fetch these VINs
+                    "hide_vins": ["WUA12345678901234"], // Optional: Don't fetch these VINs
+                    "image_mode": "all" // Optional: Image download mode (all, minimal, front, rear, inside)
                 }
             }
         ],
@@ -85,6 +86,12 @@ These are the valid options for the Audi Connector:
 - **netrc**: Path to .netrc file for credential storage
 - **max_age**: Cache duration for API responses in seconds
 - **hide_vins**: Array of VINs to exclude from data collection
+- **image_mode**: Image download mode (default: "all")
+  - **"all"**: Download all 62 available vehicle images (exterior angles, interior views, HD desktop images, etc.)
+  - **"minimal"**: Download only VehicleRenderPicture images for web UI usage (reduces storage and bandwidth)
+  - **"front"**: Download front-view images and set as car_picture (front)
+  - **"rear"**: Download rear-view images and set as car_picture (rear)
+  - **"inside"**: Download interior/insight images and set as car_picture (interior dashboard view)
 
 ## WebUI Plugin Configuration
 

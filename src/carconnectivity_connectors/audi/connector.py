@@ -227,6 +227,18 @@ class Connector(BaseConnector):
         self.active_config["max_age"] = self.active_config["interval"] - 1
         if "max_age" in config:
             self.active_config["max_age"] = config["max_age"]
+
+        # Image download mode configuration
+        self.active_config["image_mode"] = "all"  # Default to all images for backward compatibility
+        if "image_mode" in config:
+            if config["image_mode"] in ["all", "minimal", "front", "rear", "inside"]:
+                self.active_config["image_mode"] = config["image_mode"]
+            else:
+                LOG.warning(
+                    "Invalid image_mode '%s', using default 'all'. Valid options: 'all', 'minimal', 'front', 'rear', 'inside'",
+                    config["image_mode"],
+                )
+
         self.interval._set_value(timedelta(seconds=self.active_config["interval"]))  # pylint: disable=protected-access
 
         if self.active_config["username"] is None or self.active_config["password"] is None:
@@ -2732,6 +2744,26 @@ class Connector(BaseConnector):
             vehicle.position.longitude._set_value(None)  # pylint: disable=protected-access
             vehicle.position.position_type._set_value(None)  # pylint: disable=protected-access
 
+    def _convert_to_pil_image(self, image_data: dict):
+        """
+        Helper method to convert image data to PIL Image format.
+
+        Args:
+            image_data: Dictionary containing image data with 'data' key
+
+        Returns:
+            PIL Image object or raw bytes if conversion fails
+        """
+        try:
+            import io
+
+            from PIL import Image
+
+            return Image.open(io.BytesIO(image_data["data"]))
+        except Exception as pil_error:
+            LOG.warning("Failed to convert image to PIL format: %s", pil_error)
+            return image_data["data"]
+
     def fetch_vehicle_images(self, vehicle: AudiVehicle) -> None:
         """
         Fetches vehicle images using the MyAudi app GraphQL API.
@@ -2838,6 +2870,64 @@ class Connector(BaseConnector):
                 "MYAAN8NB": "side_right",
             }
 
+            # Filter render pictures based on configuration BEFORE downloading
+            image_mode = self.active_config["image_mode"]
+            if image_mode == "minimal":
+                # In minimal mode, keep only VehicleRenderPicture images for web UI
+                filtered_pictures = []
+                for picture in render_pictures:
+                    media_type = picture.get("mediaType", "")
+                    if "VehicleRenderPicture" in media_type:
+                        filtered_pictures.append(picture)
+
+                original_count = len(render_pictures)
+                render_pictures = filtered_pictures
+                LOG.info(
+                    "Image mode 'minimal': filtered %d pictures to %d VehicleRenderPicture pictures for VIN %s",
+                    original_count,
+                    len(render_pictures),
+                    vin,
+                )
+            elif image_mode in ["front", "rear", "inside"]:
+                # In specific image mode, download only the requested image type
+                filtered_pictures = []
+                target_media_types = set()
+
+                # Map image mode to specific media types (no fallbacks to reduce downloads)
+                if image_mode == "front":
+                    target_media_types = {"MYAAN3NB"}  # front view only
+                elif image_mode == "rear":
+                    target_media_types = {"MYAAN5NB"}  # rear view only
+                elif image_mode == "inside":
+                    # Find interior/insight images
+                    target_media_types = {"VehicleRenderPictureInsight"}
+
+                # Filter to only the specific requested image types
+                for picture in render_pictures:
+                    media_type = picture.get("mediaType", "")
+                    if media_type in target_media_types:
+                        filtered_pictures.append(picture)
+
+                # If no specific image found, add standard VehicleRenderPicture as single fallback
+                if not filtered_pictures:
+                    for picture in render_pictures:
+                        media_type = picture.get("mediaType", "")
+                        if media_type == "VehicleRenderPicture":
+                            filtered_pictures.append(picture)
+                            break  # Only add one fallback image
+
+                original_count = len(render_pictures)
+                render_pictures = filtered_pictures
+                LOG.info(
+                    "Image mode '%s': filtered %d pictures to %d specific pictures for VIN %s",
+                    image_mode,
+                    original_count,
+                    len(render_pictures),
+                    vin,
+                )
+            else:
+                LOG.info("Image mode 'all': downloading all %d pictures for VIN %s", len(render_pictures), vin)
+
             images = []
             for picture in render_pictures:
                 picture_url = picture.get("url")
@@ -2912,25 +3002,81 @@ class Connector(BaseConnector):
                             image_value, measured=current_time
                         )  # pylint: disable=protected-access
 
-                # Copy headlight picture to car_picture for availability under that name
-                if headlight_image is not None:
+                # Set car_picture based on image_mode configuration
+                car_picture_source = None
+                car_picture_source_name = None
+                image_mode = self.active_config["image_mode"]
+
+                if image_mode == "all":
+                    # In all mode, prefer headlight image for backward compatibility
+                    if headlight_image is not None:
+                        car_picture_source = headlight_image
+                        car_picture_source_name = "headlight"
+                elif image_mode == "front":
+                    # Find front image (MYAAN3NB or MYAAN1NB)
+                    for image_data in images:
+                        if image_data.get("type") in ["front", "front_left"]:
+                            car_picture_source = self._convert_to_pil_image(image_data)
+                            car_picture_source_name = image_data.get("type")
+                            break
+                elif image_mode == "rear":
+                    # Find rear image (MYAAN5NB or MYAAN6NB)
+                    for image_data in images:
+                        if image_data.get("type") in ["rear", "rear_right"]:
+                            car_picture_source = self._convert_to_pil_image(image_data)
+                            car_picture_source_name = image_data.get("type")
+                            break
+                elif image_mode == "inside":
+                    # Find inside/insight image
+                    for image_data in images:
+                        if "insight" in image_data.get("type", "").lower() or "interior" in image_data.get("type", "").lower():
+                            car_picture_source = self._convert_to_pil_image(image_data)
+                            car_picture_source_name = image_data.get("type")
+                            break
+                elif image_mode == "minimal":
+                    # In minimal mode, use standard VehicleRenderPicture
+                    pass  # Will use fallback logic below
+
+                # Fallback logic for all modes if specific image not found
+                if car_picture_source is None:
+                    # Try standard VehicleRenderPicture first
+                    for image_data in images:
+                        if image_data.get("media_type", "") == "VehicleRenderPicture":
+                            car_picture_source = self._convert_to_pil_image(image_data)
+                            car_picture_source_name = "VehicleRenderPicture"
+                            break
+
+                    # If no standard VehicleRenderPicture found, fall back to any VehicleRenderPicture variant
+                    if car_picture_source is None:
+                        for image_data in images:
+                            if "VehicleRenderPicture" in image_data.get("media_type", ""):
+                                car_picture_source = self._convert_to_pil_image(image_data)
+                                car_picture_source_name = image_data.get("media_type", "VehicleRenderPicture")
+                                break
+
+                    # Final fallback: use headlight if available (for all mode)
+                    if car_picture_source is None and headlight_image is not None:
+                        car_picture_source = headlight_image
+                        car_picture_source_name = "headlight"
+
+                if car_picture_source is not None:
                     from carconnectivity.attributes import ImageAttribute
 
                     if "car_picture" in vehicle.images.images:
                         # Update existing car_picture attribute
                         vehicle.images.images["car_picture"]._set_value(
-                            headlight_image, measured=current_time
+                            car_picture_source, measured=current_time
                         )  # pylint: disable=protected-access
                     else:
                         # Create new car_picture attribute
                         vehicle.images.images["car_picture"] = ImageAttribute(
-                            name="car_picture", parent=vehicle.images, value=headlight_image
+                            name="car_picture", parent=vehicle.images, value=car_picture_source
                         )
                         # Set the measured timestamp after creation
                         vehicle.images.images["car_picture"]._set_value(
-                            headlight_image, measured=current_time
+                            car_picture_source, measured=current_time
                         )  # pylint: disable=protected-access
-                    LOG.debug("Copied headlight image to car_picture for VIN %s", vin)
+                    LOG.debug("Copied %s image to car_picture for VIN %s", car_picture_source_name, vin)
 
                 LOG.info("Successfully fetched %d vehicle images for VIN %s", len(images), vin)
 
