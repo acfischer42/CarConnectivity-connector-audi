@@ -7,7 +7,6 @@ import logging
 import netrc
 import os
 import threading
-import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -2735,15 +2734,13 @@ class Connector(BaseConnector):
 
     def fetch_vehicle_images(self, vehicle: AudiVehicle) -> None:
         """
-        Fetches vehicle images from the Audi owners manual API.
+        Fetches vehicle images using the MyAudi app GraphQL API.
 
-        This method:
-        1. Calls /web/rdw/start with VIN to get authentication tokens using requests
-        2. Extracts web_access_token from Set-Cookie headers
-        3. Uses the token to call /rdw/res/v1/imagesurl
-        4. Stores the image URLs in vehicle.rawAPI.vehicle_images
-
-        Note: WAF enforces ~60s cooldown between requests.
+        This method implements the actual GraphQL query discovered from APK analysis:
+        - Uses the renderPictures query from GetRenderingsRequest.java
+        - Maps media types based on Renderings.java view constants
+        - Downloads and stores vehicle images properly
+        - Images are only loaded once - subsequent calls skip if images already exist
 
         Args:
             vehicle (AudiVehicle): The Audi vehicle object whose images are to be fetched.
@@ -2755,191 +2752,193 @@ class Connector(BaseConnector):
         if vin is None:
             raise ValueError("vehicle.vin cannot be None")
 
-        # Check WAF cooldown (60 seconds between requests)
-        if hasattr(self, "_last_owners_manual_request"):
-            elapsed = time.time() - self._last_owners_manual_request
-            if elapsed < 60:
-                LOG.debug("WAF cooldown active for owners manual API (%.0fs remaining), skipping vehicle images", 60 - elapsed)
+        # Check if images are already loaded - skip if they exist
+        if hasattr(vehicle.images, "images") and vehicle.images.images:
+            # Check if we have any meaningful images loaded
+            existing_images = [img_id for img_id, img_attr in vehicle.images.images.items() if img_attr.value is not None]
+            if existing_images:
+                LOG.debug("Vehicle images already loaded for VIN %s (%d images), skipping fetch", vin, len(existing_images))
                 return
 
         try:
-            # Step 1: Get authentication token using requests with proper headers
-            start_url = f"https://ownersmanual.audi.com/web/rdw/start?vin={vin}&language=de_DE"
+            # Use the GraphQL API endpoint from MyAudi mobile app
+            graphql_url = "https://app-api.live-my.audi.com/vgql/v1/graphql"
 
-            LOG.debug("Fetching owners manual token for VIN %s", vin)
-
-            # Headers to mimic Firefox browser
-            start_headers = {
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Cache-Control": "max-age=0",
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "MyAudi/5.0.1 (Android)",
             }
 
-            # Use a dedicated session so cookies set during redirects are preserved
-            owners_session = requests.Session()
-            # populate session headers to mimic a browser
-            owners_session.headers.update(start_headers)
-            start_response = owners_session.get(start_url, timeout=10, allow_redirects=True)
-            self._last_owners_manual_request = time.time()
-
-            # Check for WAF challenge in response
-            if "x-amzn-waf-action: challenge" in start_response.headers.get("x-amzn-waf-action", "").lower():
-                LOG.info("AWS WAF challenge detected for owners manual API (VIN: %s)", vin)
-                LOG.info(
-                    "Vehicle images require browser access or cooldown period - visit https://ownersmanual.audi.com manually"
-                )
-                return
-
-            # Check if this is an HTML page indicating we need a different approach
-            if start_response.headers.get("Content-Type", "").startswith("text/html"):
-                LOG.warning("Received HTML page instead of authentication response - may need different API approach")
-                LOG.debug("HTML content suggests this might be a SPA (Single Page Application) that needs different handling")
-
-                # Try to look for any JavaScript that might contain API endpoints
-                if "baseScript" in start_response.text or 'folder = "abo2-web"' in start_response.text:
-                    LOG.info("Detected Audi owners manual web application - this might require different authentication")
-                    LOG.info("The API might have changed or require browser-like session handling")
-
-            # Extract web_access_token from session cookies (preserves cookies from redirects)
-            web_access_token = None
-            for cookie in owners_session.cookies:
-                LOG.debug(
-                    "Found cookie (session): %s = %s",
-                    cookie.name,
-                    cookie.value[:50] + "..." if len(cookie.value) > 50 else cookie.value,
-                )
-                if cookie.name == "web_access_token":
-                    web_access_token = cookie.value
-                    break
-
-            # Fallback: also check the final response cookies
-            if not web_access_token:
-                for cookie in start_response.cookies:
-                    LOG.debug(
-                        "Found cookie (response): %s = %s",
-                        cookie.name,
-                        cookie.value[:50] + "..." if len(cookie.value) > 50 else cookie.value,
-                    )
-                    if cookie.name == "web_access_token":
-                        web_access_token = cookie.value
-                        break
-
-            if not web_access_token:
-                LOG.warning("Could not retrieve owners manual token for VIN %s", vin)
-                LOG.warning(
-                    "Response status: %s, cookies: %s", start_response.status_code, list(start_response.cookies.keys())
-                )
-                LOG.warning("This might indicate the API endpoint has changed or requires different authentication")
-                return
-
-            LOG.debug("Successfully retrieved owners manual token for VIN %s (%s chars)", vin, len(web_access_token))
-
-            # Step 2: Fetch image URLs using the token
-            images_url = "https://ownersmanual.audi.com/rdw/res/v1/imagesurl"
-            image_headers = {
-                "Accept": "application/json, text/plain, */*",
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Authorization": f"Bearer {web_access_token}",
-                "x-language": "de_DE",
-                "Referer": "https://ownersmanual.audi.com/app/rdw/?language=de_DE",
-            }
-
-            LOG.debug("Fetching vehicle images for VIN %s", vin)
-
-            # Use the same owners_session to call the images API (session preserves cookies); also include Bearer token
-            images_response = owners_session.get(images_url, headers=image_headers, timeout=10)
-
-            if images_response.status_code == requests.codes["ok"]:
-                images_data = images_response.json()
-
-                # Store in vehicle's rawAPI
-                vehicle.rawAPI.vehicle_images._set_value(images_data)  # pylint: disable=protected-access
-
-                # Extract URLs and download actual images
-                if "urlResult" in images_data:
-                    image_urls = {
-                        item["config"]: item["url"] for item in images_data["urlResult"] if "config" in item and "url" in item
-                    }
-
-                    LOG.info("Successfully fetched %s vehicle image URLs for VIN %s", len(image_urls), vin)
-                    LOG.debug("Available image configs: %s", ", ".join(image_urls.keys()))
-
-                    # Download and store actual images if PIL is available
-                    if SUPPORT_IMAGES:
-                        downloaded_count = 0
-
-                        for config, url in image_urls.items():
-                            try:
-                                # Download the WebP image
-                                img_response = requests.get(url, timeout=10, stream=True)
-                                if img_response.status_code == 200:
-                                    # Open as PIL Image
-                                    img = Image.open(img_response.raw)
-
-                                    # Store in framework's images object
-                                    if config not in vehicle.images.images:
-                                        from carconnectivity.attributes import ImageAttribute
-
-                                        vehicle.images.images[config] = ImageAttribute(
-                                            name=config,
-                                            parent=vehicle.images,
-                                            value=img,
-                                            tags={"connector_custom", "owners_manual"},
-                                        )
-                                    else:
-                                        vehicle.images.images[config]._set_value(img)  # pylint: disable=protected-access
-
-                                    downloaded_count += 1
-                                else:
-                                    LOG.debug("Failed to download image %s: HTTP %s", config, img_response.status_code)
-                            except Exception as e:
-                                import traceback
-
-                                LOG.debug("Error downloading image %s: %s\n%s", config, e, traceback.format_exc())
-
-                        # Set car_picture alias: prefer first exterior (abo2n*) image, fallback to any
-                        car_picture_config = None
-                        # First try: find first image starting with abo2n (exterior images)
-                        for config in sorted(image_urls.keys()):
-                            if config.startswith("abo2n") and config in vehicle.images.images:
-                                car_picture_config = config
-                                break
-
-                        # Fallback: use first available image if no abo2n found
-                        if car_picture_config is None and vehicle.images.images:
-                            car_picture_config = next(iter(sorted(vehicle.images.images.keys())))
-
-                        # Create car_picture as a new ImageAttribute (not just a reference)
-                        if car_picture_config and car_picture_config in vehicle.images.images:
-                            source_image = vehicle.images.images[car_picture_config]
-                            vehicle.images.images["car_picture"] = ImageAttribute(
-                                name="car_picture",
-                                parent=vehicle.images,
-                                value=source_image.value,
-                                tags={"connector_custom", "owners_manual", "primary"},
-                            )
-                            LOG.info("Set car_picture alias to %s", car_picture_config)
-
-                        LOG.info(
-                            "Successfully downloaded %s/%s vehicle images for VIN %s", downloaded_count, len(image_urls), vin
-                        )
-                    else:
-                        # PIL not available - skip image downloads
-                        LOG.warning("PIL/Pillow not available, skipping image downloads for VIN %s", vin)
-                else:
-                    LOG.warning("No urlResult found in images response for VIN %s", vin)
+            # Add Bearer token - required for GraphQL authentication
+            if hasattr(self.session, "access_token") and self.session.access_token:
+                headers["Authorization"] = f"Bearer {self.session.access_token}"
+                LOG.debug("Added Authorization header for GraphQL request")
             else:
-                LOG.warning("Failed to fetch vehicle images for VIN %s: HTTP %s", vin, images_response.status_code)
+                LOG.warning("No access token available for GraphQL request")
+                return
+
+            # Use the actual GraphQL query from MyAudi app APK analysis
+            # Based on GetRenderingsRequest.java and Renderings.java
+            render_query = {
+                "query": """
+                    query renderPictures($vehicleCoreId: String!) {
+                        vehicle(vehicleCoreId: $vehicleCoreId) {
+                            renderPictures {
+                                mediaType
+                                url
+                            }
+                        }
+                    }
+                """,
+                "variables": {"vehicleCoreId": vin},  # Use VIN as vehicleCoreId
+            }
+
+            LOG.debug("Fetching vehicle render pictures via GraphQL for VIN %s", vin)
+            response = self.session.post(graphql_url, json=render_query, headers=headers, timeout=10)
+
+            if response.status_code != requests.codes["ok"]:
+                LOG.warning("Failed to fetch vehicle images via GraphQL: HTTP %s", response.status_code)
+                try:
+                    error_response = response.json()
+                    LOG.debug("GraphQL error response: %s", error_response)
+                except Exception:
+                    LOG.debug("GraphQL error response (raw): %s", response.text[:500])
+                return
+
+            graphql_data = response.json()
+
+            # Check for GraphQL errors
+            if "errors" in graphql_data:
+                LOG.error("GraphQL errors for VIN %s: %s", vin, graphql_data["errors"])
+                return
+
+            # Extract render pictures from GraphQL response
+            vehicle_node = graphql_data.get("data", {}).get("vehicle")
+            if not vehicle_node:
+                LOG.warning("No vehicle node found in GraphQL response for VIN %s", vin)
+                return
+
+            render_pictures = vehicle_node.get("renderPictures", [])
+            if not render_pictures:
+                LOG.info("No render pictures found for VIN %s", vin)
+                return
+
+            # Store the GraphQL response for analysis
+            vehicle.rawAPI.vehicle_images._set_value(graphql_data)  # pylint: disable=protected-access
+
+            # View type mapping based on Renderings.java constants from APK analysis
+            view_type_mapping = {
+                "MYAAN1NB": "front_left",
+                "MYAAN2NB": "headlight",
+                "MYAAN3NB": "front",
+                "MYAAN5NB": "rear",
+                "MYAAN6NB": "rear_right",
+                "MYAAN7NB": "side_left",
+                "MYAAN8NB": "side_right",
+            }
+
+            images = []
+            for picture in render_pictures:
+                picture_url = picture.get("url")
+                if not picture_url:
+                    continue
+
+                media_type = picture.get("mediaType", "unknown")
+                view_type = view_type_mapping.get(media_type, media_type)
+
+                # Download the actual image
+                try:
+                    LOG.debug("Downloading vehicle image: %s (%s)", view_type, picture_url)
+                    image_response = self.session.get(picture_url, timeout=15)
+
+                    if image_response.status_code == requests.codes["ok"]:
+                        image_data = {
+                            "type": view_type,
+                            "media_type": media_type,
+                            "url": picture_url,
+                            "data": image_response.content,
+                            "content_type": image_response.headers.get("content-type", "image/jpeg"),
+                            "source": "graphql_render_pictures",
+                        }
+                        images.append(image_data)
+                        LOG.debug("Successfully downloaded %s image (%d bytes)", view_type, len(image_response.content))
+                    else:
+                        LOG.warning("Failed to download image %s: HTTP %s", picture_url, image_response.status_code)
+
+                except Exception as e:
+                    LOG.warning("Error downloading vehicle image %s: %s", picture_url, e)
+
+                # Store images in the vehicle object using proper ImageAttribute structure
+            if images:
+                # Create ImageAttribute objects for each image type
+                current_time = datetime.now(timezone.utc)
+                headlight_image = None  # Keep track of headlight image for car_picture copy
+
+                for image_data in images:
+                    image_type = image_data["type"]
+
+                    # Convert raw bytes to PIL Image object for proper framework compatibility
+                    try:
+                        import io
+
+                        from PIL import Image
+
+                        image_pil = Image.open(io.BytesIO(image_data["data"]))
+                        image_value = image_pil
+                    except Exception as pil_error:
+                        LOG.warning("Failed to convert image %s to PIL format: %s", image_type, pil_error)
+                        # Fallback to raw bytes if PIL conversion fails
+                        image_value = image_data["data"]
+
+                    # Store headlight image for car_picture copy
+                    if image_type == "headlight":
+                        headlight_image = image_value
+
+                    if image_type in vehicle.images.images:
+                        # Update existing image attribute
+                        vehicle.images.images[image_type]._set_value(
+                            image_value, measured=current_time
+                        )  # pylint: disable=protected-access
+                    else:
+                        # Create new image attribute
+                        from carconnectivity.attributes import ImageAttribute
+
+                        vehicle.images.images[image_type] = ImageAttribute(
+                            name=image_type, parent=vehicle.images, value=image_value
+                        )
+                        # Set the measured timestamp after creation
+                        vehicle.images.images[image_type]._set_value(
+                            image_value, measured=current_time
+                        )  # pylint: disable=protected-access
+
+                # Copy headlight picture to car_picture for availability under that name
+                if headlight_image is not None:
+                    from carconnectivity.attributes import ImageAttribute
+
+                    if "car_picture" in vehicle.images.images:
+                        # Update existing car_picture attribute
+                        vehicle.images.images["car_picture"]._set_value(
+                            headlight_image, measured=current_time
+                        )  # pylint: disable=protected-access
+                    else:
+                        # Create new car_picture attribute
+                        vehicle.images.images["car_picture"] = ImageAttribute(
+                            name="car_picture", parent=vehicle.images, value=headlight_image
+                        )
+                        # Set the measured timestamp after creation
+                        vehicle.images.images["car_picture"]._set_value(
+                            headlight_image, measured=current_time
+                        )  # pylint: disable=protected-access
+                    LOG.debug("Copied headlight image to car_picture for VIN %s", vin)
+
+                LOG.info("Successfully fetched %d vehicle images for VIN %s", len(images), vin)
+
+                # Log image types found
+                image_types = [img["type"] for img in images]
+                LOG.debug("Image types found: %s", ", ".join(image_types))
+            else:
+                LOG.info("No vehicle images downloaded for VIN %s", vin)
 
         except Exception as e:
             LOG.warning("Error fetching vehicle images for VIN %s: %s", vin, e)
