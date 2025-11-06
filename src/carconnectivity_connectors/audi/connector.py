@@ -3677,12 +3677,24 @@ class Connector(BaseConnector):
         try:
             if command_arguments["command"] == ChargingStartStopCommand.Command.START:
                 url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/charging/start"
-                command_response: requests.Response = self.session.post(url, data="{}", allow_redirects=True)
+                payload = "{}"
+                LOG_API.debug("Sending charging START request to %s with payload: %s", url, payload)
+                command_response: requests.Response = self.session.post(url, data=payload, allow_redirects=True)
             elif command_arguments["command"] == ChargingStartStopCommand.Command.STOP:
                 url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/charging/stop"
-                command_response: requests.Response = self.session.post(url, data="{}", allow_redirects=True)
+                payload = "{}"
+                LOG_API.debug("Sending charging STOP request to %s with payload: %s", url, payload)
+                command_response: requests.Response = self.session.post(url, data=payload, allow_redirects=True)
             else:
                 raise CommandError(f'Unknown command {command_arguments["command"]}')
+
+            # Log response for diagnosis
+            try:
+                LOG_API.debug(
+                    "Charging command response: status=%s body=%s", command_response.status_code, command_response.text
+                )
+            except Exception:  # pragma: no cover - best effort logging
+                LOG.debug("Charging command executed; unable to read response body")
 
             if command_response.status_code != requests.codes["ok"]:
                 LOG.error("Could not start/stop charging (%s: %s)", command_response.status_code, command_response.text)
