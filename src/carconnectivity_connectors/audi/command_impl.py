@@ -85,3 +85,68 @@ class SpinCommand(GenericCommand):
 
         def __str__(self) -> str:
             return self.value
+
+
+class ChargeModeCommand(GenericCommand):
+    """
+    ChargeModeCommand is a command class for changing the charging mode.
+
+    """
+
+    def __init__(self, name: str = "charge-mode", parent: Optional[GenericObject] = None) -> None:
+        super().__init__(name=name, parent=parent)
+
+    @property
+    def value(self) -> Optional[Union[str, Dict]]:
+        return super().value
+
+    @value.setter
+    def value(self, new_value: Optional[Union[str, Dict]]) -> None:
+        # Execute early hooks before parsing the value
+        new_value = self._execute_on_set_hook(new_value, early_hook=True)
+        if isinstance(new_value, ChargeModeCommand.Mode):
+            newvalue_dict = {}
+            newvalue_dict["mode"] = new_value
+            new_value = newvalue_dict
+        elif isinstance(new_value, str):
+            parser = ThrowingArgumentParser(prog="", add_help=False, exit_on_error=False)
+            parser.add_argument(
+                "mode", help="Charging mode to set", type=ChargeModeCommand.Mode, choices=list(ChargeModeCommand.Mode)
+            )
+            try:
+                args = parser.parse_args(new_value.strip().split(sep=" "))
+            except argparse.ArgumentError as e:
+                raise SetterError(f"Invalid format for ChargeModeCommand: {e.message} {parser.format_usage()}") from e
+
+            newvalue_dict = {}
+            newvalue_dict["mode"] = args.mode
+            new_value = newvalue_dict
+        elif isinstance(new_value, dict):
+            if "mode" in new_value and isinstance(new_value["mode"], str):
+                if new_value["mode"] in ChargeModeCommand.Mode:
+                    new_value["mode"] = ChargeModeCommand.Mode(new_value["mode"])
+                else:
+                    raise ValueError("Invalid value for ChargeModeCommand. " f"Mode must be one of {ChargeModeCommand.Mode}")
+        if self._is_changeable:
+            # Execute late hooks before setting the value
+            new_value = self._execute_on_set_hook(new_value, early_hook=False)
+            self._set_value(new_value)
+        else:
+            raise TypeError("You cannot set this attribute. Attribute is not mutable.")
+
+    class Mode(Enum):
+        """
+        Enum class representing different charging modes.
+
+        """
+
+        MANUAL = "manual"
+        TIMER = "timer"
+        ONLY_OWN_CURRENT = "onlyOwnCurrent"
+        PREFERRED_CHARGING_TIMES = "preferredChargingTimes"
+        TIMER_CHARGING_WITH_CLIMATISATION = "timerChargingWithClimatisation"
+        HOME_STORAGE_CHARGING = "homeStorageCharging"
+        IMMEDIATE_DISCHARGING = "immediateDischarging"
+
+        def __str__(self) -> str:
+            return self.value

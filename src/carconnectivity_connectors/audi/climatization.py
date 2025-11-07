@@ -72,17 +72,11 @@ class AudiClimatization(Climatization):  # pylint: disable=too-many-instance-att
         def __init__(self, parent: Optional[GenericObject] = None) -> None:
             super().__init__(object_id="timers", parent=parent)
 
-            # Raw timer data from API - will be updated with actual timer list
-            self.raw_data = GenericAttribute("raw_data", self, value=None, tags={"connector_custom"})
-
             # Individual timer objects will be created dynamically based on API response
             # Example: self.timer_1, self.timer_2, etc.
 
         def update_timers(self, timers_data: list, captured_at) -> None:
             """Update timer data from API response"""
-            # Store raw data
-            self.raw_data._set_value(value=timers_data, measured=captured_at)
-
             # Clear existing timer attributes
             existing_timers = [attr for attr in dir(self) if attr.startswith("timer_") and not attr.startswith("_")]
             for timer_attr in existing_timers:

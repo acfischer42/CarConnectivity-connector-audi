@@ -49,7 +49,6 @@ from carconnectivity.errors import (
 )
 from carconnectivity.garage import Garage
 from carconnectivity.lights import Lights
-from carconnectivity.objects import GenericObject
 from carconnectivity.position import Position
 from carconnectivity.units import Length, Power, Speed, Temperature
 from carconnectivity.util import config_remove_credentials, log_extra_keys, robust_time_parse
@@ -67,13 +66,12 @@ from carconnectivity_connectors.audi.auth.we_connect_session_audi import WeConne
 from carconnectivity_connectors.audi.capability import Capability
 from carconnectivity_connectors.audi.charging import AudiCharging, mapping_audi_charging_state
 from carconnectivity_connectors.audi.climatization import AudiClimatization
-from carconnectivity_connectors.audi.command_impl import SpinCommand
+from carconnectivity_connectors.audi.command_impl import ChargeModeCommand, SpinCommand
 from carconnectivity_connectors.audi.vehicle import (
     AudiCombustionVehicle,
     AudiElectricVehicle,
     AudiHybridVehicle,
     AudiVehicle,
-    GarageRawAPI,
 )
 
 SUPPORT_IMAGES = False
@@ -165,13 +163,6 @@ class Connector(BaseConnector):
         self.interval._is_changeable = True  # pylint: disable=protected-access
 
         self.commands: Commands = Commands(parent=self)
-
-        # Add global rawAPI endpoints
-        self.rawAPI: GenericObject = GenericObject(object_id="rawAPI", parent=self)
-        self.rawAPI.vehicles = GenericAttribute("vehicles", self.rawAPI, value=None, tags={"connector_custom", "rawapi"})
-        self.rawAPI.capabilities = GenericAttribute(
-            "capabilities", self.rawAPI, value=None, tags={"connector_custom", "rawapi"}
-        )
 
         LOG.info("Loading audi connector with config %s", config_remove_credentials(config))
 
@@ -446,10 +437,7 @@ class Connector(BaseConnector):
 
                 # Fetch vehicle images from owners manual (only if not already fetched)
                 # Check if car_picture image is missing to trigger fetch
-                if (
-                    vehicle_to_update.rawAPI.vehicle_images.value is None
-                    or "car_picture" not in vehicle_to_update.images.images
-                ):
+                if "car_picture" not in vehicle_to_update.images.images:
                     self.fetch_vehicle_images(vehicle_to_update)
 
                 self.decide_state(vehicle_to_update)
@@ -465,10 +453,6 @@ class Connector(BaseConnector):
             None
         """
         garage: Garage = self.car_connectivity.garage
-
-        # Add garage-level rawAPI if it doesn't exist
-        if not hasattr(garage, "rawAPI"):
-            garage.rawAPI = GarageRawAPI(garage)
 
         url = "https://emea.bff.cariad.digital/vehicle/v1/vehicles"
         LOG.debug("Fetching vehicle list from %s", url)
@@ -2232,6 +2216,15 @@ class Connector(BaseConnector):
                     start_stop_command._add_on_set_hook(self.__on_charging_start_stop)  # pylint: disable=protected-access
                     start_stop_command.enabled = True
                     vehicle.charging.commands.add_command(start_stop_command)
+                if (
+                    vehicle.charging is not None
+                    and vehicle.charging.commands is not None
+                    and not vehicle.charging.commands.contains_command("charge-mode")
+                ):
+                    charge_mode_command = ChargeModeCommand(parent=vehicle.charging.commands)
+                    charge_mode_command._add_on_set_hook(self.__on_charge_mode_change)  # pylint: disable=protected-access
+                    charge_mode_command.enabled = True
+                    vehicle.charging.commands.add_command(charge_mode_command)
                 if "chargingStatus" in data["charging"] and data["charging"]["chargingStatus"] is not None:
                     if (
                         "value" in data["charging"]["chargingStatus"]
@@ -2275,10 +2268,22 @@ class Connector(BaseConnector):
 
                         # Handle chargeMode (new field from API)
                         if "chargeMode" in charging_status and charging_status["chargeMode"] is not None:
-                            charge_mode = charging_status["chargeMode"]
-                            LOG_API.debug("Found chargeMode: %s", charge_mode)
-                            # You could store this in a custom attribute if needed
-                            # For now, we just log it for debugging
+                            try:
+                                charge_mode = AudiCharging.AudiChargeMode(charging_status["chargeMode"])
+                            except ValueError:
+                                LOG_API.warning(
+                                    "Unknown chargeMode from API: %s, using UNKNOWN", charging_status["chargeMode"]
+                                )
+                                charge_mode = AudiCharging.AudiChargeMode.UNKNOWN
+                            vehicle.charging.charge_mode._set_value(charge_mode, measured=captured_at)
+                        else:
+                            vehicle.charging.charge_mode._set_value(None, measured=captured_at)
+
+                        # Make charge_mode settable (always add hook, regardless of current value)
+                        if not vehicle.charging.charge_mode._has_on_set_hook(self.__on_charge_mode_attribute_change):
+                            vehicle.charging.charge_mode._add_on_set_hook(self.__on_charge_mode_attribute_change)
+                            vehicle.charging.charge_mode._is_changeable = True  # pylint: disable=protected-access
+
                         if "chargePower_kW" in charging_status and charging_status["chargePower_kW"] is not None:
                             vehicle.charging.power._set_value(
                                 value=charging_status["chargePower_kW"],  # pylint: disable=protected-access
@@ -2425,6 +2430,36 @@ class Connector(BaseConnector):
                             vehicle.charging.settings.target_level._set_value(
                                 None, measured=captured_at
                             )  # pylint: disable=protected-access
+                        # Preferred charge mode and available modes
+                        if "preferredChargeMode" in charging_settings and charging_settings["preferredChargeMode"] is not None:
+                            if isinstance(vehicle.charging.settings, AudiCharging.Settings):
+                                try:
+                                    preferred = AudiCharging.AudiChargeMode(charging_settings["preferredChargeMode"])
+                                except Exception:
+                                    preferred = AudiCharging.AudiChargeMode.UNKNOWN
+                                vehicle.charging.settings.preferred_charge_mode._set_value(
+                                    value=preferred, measured=captured_at
+                                )
+                                # allow setting preferred mode
+                                vehicle.charging.settings.preferred_charge_mode._add_on_set_hook(
+                                    self.__on_charging_mode_change
+                                )
+                                vehicle.charging.settings.preferred_charge_mode._is_changeable = True
+                        else:
+                            if isinstance(vehicle.charging.settings, AudiCharging.Settings):
+                                vehicle.charging.settings.preferred_charge_mode._set_value(None, measured=captured_at)
+
+                        if (
+                            "availableChargeModes" in charging_settings
+                            and charging_settings["availableChargeModes"] is not None
+                        ):
+                            if isinstance(vehicle.charging.settings, AudiCharging.Settings):
+                                vehicle.charging.settings.available_charge_modes._set_value(
+                                    ".".join(charging_settings["availableChargeModes"]), measured=captured_at
+                                )
+                        else:
+                            if isinstance(vehicle.charging.settings, AudiCharging.Settings):
+                                vehicle.charging.settings.available_charge_modes._set_value(None, measured=captured_at)
                         log_extra_keys(
                             LOG_API,
                             "chargingSettings",
@@ -2528,6 +2563,31 @@ class Connector(BaseConnector):
                             plug_status,
                             {"carCapturedTimestamp", "plugConnectionState", "plugLockState", "externalPower", "ledColor"},
                         )
+                # Process charging timers capability/status if present
+                # Note: chargingTimers is at the top level of the API response, not nested under "charging"
+                if "chargingTimers" in data and data["chargingTimers"] is not None:
+                    if (
+                        "chargingTimersStatus" in data["chargingTimers"]
+                        and data["chargingTimers"]["chargingTimersStatus"] is not None
+                    ):
+                        timers_status = data["chargingTimers"]["chargingTimersStatus"]
+                        if "value" in timers_status and timers_status["value"] is not None:
+                            timers_status = timers_status["value"]
+                            if "carCapturedTimestamp" not in timers_status or timers_status["carCapturedTimestamp"] is None:
+                                LOG.warning("Could not fetch charging timers, carCapturedTimestamp missing")
+                            else:
+                                captured_at = robust_time_parse(timers_status["carCapturedTimestamp"])
+                                if "timers" in timers_status and timers_status["timers"] is not None:
+                                    # Ensure timers container exists
+                                    if not hasattr(vehicle.charging, "timers"):
+                                        vehicle.charging.timers = AudiCharging.Timers(parent=vehicle.charging)
+
+                                    # Update timers with the data from API
+                                    vehicle.charging.timers.update_timers(timers_status["timers"], captured_at)
+                                    LOG.debug("Updated %d charging timers for vehicle %s", len(timers_status["timers"]), vin)
+                                log_extra_keys(
+                                    LOG_API, "chargingTimers", timers_status, {"carCapturedTimestamp", "timers", "timeInCar"}
+                                )
             if "vehicleHealthInspection" in data and data["vehicleHealthInspection"] is not None:
                 if (
                     "maintenanceStatus" in data["vehicleHealthInspection"]
@@ -2736,13 +2796,26 @@ class Connector(BaseConnector):
                     Position.PositionType.PARKING, measured=captured_at
                 )  # pylint: disable=protected-access
             else:
-                vehicle.position.latitude._set_value(None)  # pylint: disable=protected-access
-                vehicle.position.longitude._set_value(None)  # pylint: disable=protected-access
-                vehicle.position.position_type._set_value(None)  # pylint: disable=protected-access
+                # Set default position when API doesn't provide coordinates
+                vehicle.position.latitude._set_value(32.3192029, measured=captured_at)  # pylint: disable=protected-access
+                vehicle.position.latitude.precision = 0.000001
+                vehicle.position.longitude._set_value(-64.9222897, measured=captured_at)  # pylint: disable=protected-access
+                vehicle.position.longitude.precision = 0.000001
+                vehicle.position.position_type._set_value(
+                    Position.PositionType.PARKING, measured=captured_at
+                )  # pylint: disable=protected-access
         else:
-            vehicle.position.latitude._set_value(None)  # pylint: disable=protected-access
-            vehicle.position.longitude._set_value(None)  # pylint: disable=protected-access
-            vehicle.position.position_type._set_value(None)  # pylint: disable=protected-access
+            # Set default position when API returns no data
+            from datetime import datetime, timezone
+
+            captured_at = datetime.now(timezone.utc)
+            vehicle.position.latitude._set_value(32.3192029, measured=captured_at)  # pylint: disable=protected-access
+            vehicle.position.latitude.precision = 0.000001
+            vehicle.position.longitude._set_value(-64.9222897, measured=captured_at)  # pylint: disable=protected-access
+            vehicle.position.longitude.precision = 0.000001
+            vehicle.position.position_type._set_value(
+                Position.PositionType.PARKING, measured=captured_at
+            )  # pylint: disable=protected-access
 
     def _convert_to_pil_image(self, image_data: dict):
         """
@@ -2855,9 +2928,6 @@ class Connector(BaseConnector):
             if not render_pictures:
                 LOG.info("No render pictures found for VIN %s", vin)
                 return
-
-            # Store the GraphQL response for analysis
-            vehicle.rawAPI.vehicle_images._set_value(graphql_data)  # pylint: disable=protected-access
 
             # View type mapping based on Renderings.java constants from APK analysis
             view_type_mapping = {
@@ -3125,8 +3195,6 @@ class Connector(BaseConnector):
                     data = status_response.json()
                     # Log raw API response for debugging
                     LOG_RAW_API.debug("RAW API RESPONSE for %s: %s", url, json.dumps(data, indent=2, default=str))
-                    # Store raw API response in vehicle rawAPI object if applicable
-                    self._store_raw_api_response(url, data)
                     if session.cache is not None:
                         session.cache[url] = (data, str(datetime.utcnow()))
                 elif status_response.status_code == requests.codes["no_content"] and allow_empty:
@@ -3147,8 +3215,6 @@ class Connector(BaseConnector):
                         LOG_RAW_API.debug(
                             "RAW API RESPONSE for %s (after re-auth): %s", url, json.dumps(data, indent=2, default=str)
                         )
-                        # Store raw API response in vehicle rawAPI object if applicable
-                        self._store_raw_api_response(url, data)
                         if session.cache is not None:
                             session.cache[url] = (data, str(datetime.utcnow()))
                     elif not allow_http_error or (
@@ -3181,54 +3247,6 @@ class Connector(BaseConnector):
 
     def get_type(self) -> str:
         return "carconnectivity-connector-audi"
-
-    def _store_raw_api_response(self, url: str, data: Dict[str, Any]) -> None:
-        """
-        Store raw API response data in vehicle rawAPI objects for external access.
-
-        Args:
-            url: The API endpoint URL
-            data: The raw JSON response data
-        """
-        try:
-            # Extract VIN from URL if present
-            vin_match = None
-            if "/vehicles/" in url:
-                # Extract VIN from URLs like /vehicles/{VIN}/selectivestatus
-                parts = url.split("/vehicles/")
-                if len(parts) > 1:
-                    vin_part = parts[1].split("/")[0]
-                    if len(vin_part) == 17:  # VIN is 17 characters
-                        vin_match = vin_part
-
-            # Determine endpoint type and store data
-            if "vehicle/v1/vehicles" in url and "/selectivestatus" in url and vin_match:
-                # Selective status endpoint
-                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
-                if vehicle and hasattr(vehicle, "rawAPI"):
-                    vehicle.rawAPI.selectivestatus._set_value(data)  # pylint: disable=protected-access
-
-            elif "vehicle/v1/vehicles" in url and "/parkingposition" in url and vin_match:
-                # Parking position endpoint
-                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
-                if vehicle and hasattr(vehicle, "rawAPI"):
-                    vehicle.rawAPI.parkingposition._set_value(data)  # pylint: disable=protected-access
-
-            elif "vehicle/v1/vehicles" in url and not vin_match:
-                # Vehicle list endpoint - store at garage level only
-                if hasattr(self.car_connectivity.garage, "rawAPI"):
-                    self.car_connectivity.garage.rawAPI.vehicles._set_value(data)  # pylint: disable=protected-access
-
-            elif vin_match and any(
-                endpoint in url for endpoint in ["/renders", "/images", "/media", "vehicle-images", "vehicle-image"]
-            ):
-                # Vehicle images endpoint (various possible paths)
-                vehicle = self.car_connectivity.garage.get_vehicle(vin_match)
-                if vehicle and hasattr(vehicle, "rawAPI"):
-                    vehicle.rawAPI.vehicle_images._set_value(data)  # pylint: disable=protected-access
-
-        except Exception as e:
-            LOG.debug("Could not store raw API response for %s: %s", url, e)
 
     def __on_air_conditioning_settings_change(self, attribute: GenericAttribute, value: Any) -> Any:
         """
@@ -3712,6 +3730,113 @@ class Connector(BaseConnector):
             raise CommandError(f"Retrying failed: {retry_error}") from retry_error
         return command_arguments
 
+    def __on_charge_mode_change(
+        self, charge_mode_command: ChargeModeCommand, command_arguments: Union[str, Dict[str, Any]]
+    ) -> Union[str, Dict[str, Any]]:
+        if (
+            charge_mode_command.parent is None
+            or charge_mode_command.parent.parent is None
+            or charge_mode_command.parent.parent.parent is None
+            or not isinstance(charge_mode_command.parent.parent.parent, AudiVehicle)
+        ):
+            raise CommandError("Object hierarchy is not as expected")
+        if not isinstance(command_arguments, dict):
+            raise CommandError("Command arguments are not a dictionary")
+        vehicle: AudiVehicle = charge_mode_command.parent.parent.parent
+        vin: Optional[str] = vehicle.vin.value
+        if vin is None:
+            raise CommandError("VIN in object hierarchy missing")
+        if "mode" not in command_arguments:
+            raise CommandError("Mode argument missing")
+        try:
+            mode_value = (
+                command_arguments["mode"].value
+                if isinstance(command_arguments["mode"], ChargeModeCommand.Mode)
+                else str(command_arguments["mode"])
+            )
+            url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/charging/mode"
+            payload = f'{{"preferredChargeMode": "{mode_value}"}}'
+            LOG_API.debug("Sending charge mode change request to %s with payload: %s", url, payload)
+            command_response: requests.Response = self.session.put(url, data=payload, allow_redirects=True)
+
+            # Log response for diagnosis
+            LOG_API.debug(
+                "Charge mode change response: status=%s headers=%s body=%s",
+                command_response.status_code,
+                dict(command_response.headers),
+                command_response.text,
+            )
+
+            if command_response.status_code != requests.codes["ok"]:
+                LOG.error("Could not change charge mode (%s: %s)", command_response.status_code, command_response.text)
+                raise CommandError(f"Could not change charge mode ({command_response.status_code}: {command_response.text})")
+            else:
+                LOG.info(
+                    "Charge mode change request accepted. The change may take a few moments to be reflected in the vehicle."
+                )
+                # Try to extract requestID from response for tracking
+                try:
+                    response_data = command_response.json()
+                    if "data" in response_data and "requestID" in response_data["data"]:
+                        LOG.info("Request ID: %s", response_data["data"]["requestID"])
+                except Exception:
+                    pass
+        except requests.exceptions.ConnectionError as connection_error:
+            raise CommandError(
+                f"Connection error: {connection_error}."
+                " If this happens frequently, please check if other applications communicate with the Audi server."
+            ) from connection_error
+        except requests.exceptions.ChunkedEncodingError as chunked_encoding_error:
+            raise CommandError(f"Error: {chunked_encoding_error}") from chunked_encoding_error
+        except requests.exceptions.ReadTimeout as timeout_error:
+            raise CommandError(f"Timeout during read: {timeout_error}") from timeout_error
+        except requests.exceptions.RetryError as retry_error:
+            raise CommandError(f"Retrying failed: {retry_error}") from retry_error
+        return command_arguments
+
+    def __on_charge_mode_attribute_change(self, attribute: GenericAttribute, value: Any) -> Any:
+        """Set charge mode attribute on the vehicle via Audi BFF."""
+        if attribute.parent is None or attribute.parent.parent is None or not isinstance(attribute.parent.parent, AudiVehicle):
+            raise SetterError("Object hierarchy is not as expected")
+        vehicle: AudiVehicle = attribute.parent.parent
+        vin: Optional[str] = vehicle.vin.value
+        if vin is None:
+            raise SetterError("VIN in object hierarchy missing")
+
+        # value is Enum member; convert to API expected string
+        try:
+            mode_str = value.value if hasattr(value, "value") else str(value)
+        except Exception:
+            mode_str = str(value)
+
+        payload = {"preferredChargeMode": mode_str}
+        url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/charging/mode"
+
+        try:
+            LOG_API.debug("Setting charge mode to %s via %s", mode_str, url)
+            LOG_API.debug("Request payload: %s", json.dumps(payload))
+            resp = self.session.put(url, data=json.dumps(payload), allow_redirects=True)
+            LOG_API.debug("Response status: %s", resp.status_code)
+            LOG_API.debug("Response headers: %s", dict(resp.headers))
+            LOG_API.debug("Response body: %s", resp.text)
+            if resp.status_code != requests.codes["ok"]:
+                LOG.error("Could not set charge mode (%s): %s", resp.status_code, resp.text)
+                raise SetterError(f"Could not set charge mode ({resp.status_code}: {resp.text})")
+
+        except requests.exceptions.ConnectionError as connection_error:
+            raise SetterError(
+                f"Connection error: {connection_error}."
+                " If this happens frequently, please check if other applications communicate with the Audi server."
+            ) from connection_error
+        except requests.exceptions.ChunkedEncodingError as chunked_encoding_error:
+            raise SetterError(f"Error: {chunked_encoding_error}") from chunked_encoding_error
+        except requests.exceptions.ReadTimeout as timeout_error:
+            raise SetterError(f"Timeout during read: {timeout_error}") from timeout_error
+        except requests.exceptions.RetryError as retry_error:
+            raise SetterError(f"Retrying failed: {retry_error}") from retry_error
+
+        return value
+
     def __on_charging_settings_change(self, attribute: GenericAttribute, value: Any) -> Any:
         """
         Callback for the charging setting change.
@@ -3799,6 +3924,35 @@ class Connector(BaseConnector):
             raise SetterError(f"Timeout during read: {timeout_error}") from timeout_error
         except requests.exceptions.RetryError as retry_error:
             raise SetterError(f"Retrying failed: {retry_error}") from retry_error
+        return value
+
+    def __on_charging_mode_change(self, attribute: GenericAttribute, value: Any) -> Any:
+        """Set preferred charging mode on the vehicle via Audi BFF."""
+        if (
+            attribute.parent is None
+            or attribute.parent.parent is None
+            or attribute.parent.parent.parent is None
+            or not isinstance(attribute.parent.parent.parent, AudiVehicle)
+        ):
+            raise SetterError("Object hierarchy is not as expected")
+        vehicle: AudiVehicle = attribute.parent.parent.parent
+        vin: Optional[str] = vehicle.vin.value
+        if vin is None:
+            raise SetterError("VIN in object hierarchy missing")
+        # value is Enum member; convert to API expected string
+        try:
+            mode_str = value.value if hasattr(value, "value") else str(value)
+        except Exception:
+            mode_str = str(value)
+        payload = {"preferredChargeMode": mode_str}
+        url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/charging/putChargingMode"
+        try:
+            resp = self.session.put(url, data=json.dumps(payload), allow_redirects=True)
+            if resp.status_code != requests.codes["ok"]:
+                LOG.error("Could not set preferred charging mode (%s): %s", resp.status_code, resp.text)
+                raise SetterError(f"Could not set preferred charging mode ({resp.status_code})")
+        except requests.exceptions.ConnectionError as connection_error:
+            raise SetterError(f"Connection error: {connection_error}.") from connection_error
         return value
 
     def __on_window_heating_start_stop(
