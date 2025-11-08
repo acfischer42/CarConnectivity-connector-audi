@@ -8,6 +8,7 @@ import netrc
 import os
 import threading
 import traceback
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -94,7 +95,6 @@ if TYPE_CHECKING:
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.connectors.audi")
 LOG_API: logging.Logger = logging.getLogger("carconnectivity.connectors.audi-api-debug")
-LOG_RAW_API: logging.Logger = logging.getLogger("carconnectivity.connectors.audi.rawapi")
 
 # API Enhancement Notes:
 # - Added support for 'ready' value in ExternalPower enum (mapped to AVAILABLE)
@@ -435,10 +435,18 @@ class Connector(BaseConnector):
                 ):
                     self.fetch_parking_position(vehicle_to_update)
 
+                # Fetch vehicle warnings (not capability-based, always try to fetch)
+                self.fetch_vehicle_warnings(vehicle_to_update)
+
                 # Fetch vehicle images from owners manual (only if not already fetched)
                 # Check if car_picture image is missing to trigger fetch
                 if "car_picture" not in vehicle_to_update.images.images:
                     self.fetch_vehicle_images(vehicle_to_update)
+
+                # Fetch vehicle specification from VGQL API (only if not already fetched)
+                # Check if specification data is missing by looking for any tech spec group
+                if not hasattr(vehicle_to_update.specification.techspecs, "engine"):
+                    self.fetch_vehicle_specification(vehicle_to_update)
 
                 self.decide_state(vehicle_to_update)
 
@@ -2664,6 +2672,7 @@ class Connector(BaseConnector):
                             },
                         )
                 log_extra_keys(LOG_API, "vehicleHealthInspection", data["vehicleHealthInspection"], {"maintenanceStatus"})
+
             if "readiness" in data and data["readiness"] is not None:
                 if "readinessStatus" in data["readiness"] and data["readiness"]["readinessStatus"] is not None:
                     readiness_status = data["readiness"]["readinessStatus"]
@@ -2711,6 +2720,7 @@ class Connector(BaseConnector):
                     "readiness",
                     "fuelStatus",
                     "climatisationTimers",
+                    "chargingTimers",
                 },
             )
 
@@ -2816,6 +2826,98 @@ class Connector(BaseConnector):
             vehicle.position.position_type._set_value(
                 Position.PositionType.PARKING, measured=captured_at
             )  # pylint: disable=protected-access
+
+    def fetch_vehicle_warnings(self, vehicle: AudiVehicle) -> None:
+        """
+        Fetches the vehicle health warnings for the given Audi vehicle and updates the vehicle's warnings attributes.
+
+        Args:
+            vehicle (AudiVehicle): The Audi vehicle object whose warnings are to be fetched.
+
+        Raises:
+            ValueError: If the vehicle's VIN is None.
+
+        Updates:
+            vehicle.warnings.*: Various warning-related attributes
+        """
+        vin = vehicle.vin.value
+        if vin is None:
+            raise ValueError("vehicle.vin cannot be None")
+
+        # Check if vehicle has warnings attribute
+        if not hasattr(vehicle, "warnings"):
+            LOG.debug("Vehicle %s does not have warnings attribute, skipping warnings fetch", vin)
+            return
+
+        # Generate a unique request ID for the warnings request
+        request_id = str(uuid.uuid4())
+
+        # Use the correct vehiclehealthwakeup endpoint found in APK analysis
+        url = f"https://emea.bff.cariad.digital/vehicle/v1/vehicles/{vin}/vehiclehealthwakeup/{request_id}"
+
+        LOG.debug("Fetching vehicle health warnings from: %s", url)
+        LOG_API.debug("Vehicle health warnings request URL: %s", url)
+
+        # POST request to vehiclehealthwakeup endpoint
+        try:
+            response = self.session.post(url, data="{}", allow_redirects=True, timeout=30)
+
+            if response.status_code == 404:
+                LOG.debug("Vehicle health warnings endpoint returned 404 for vehicle %s", vin)
+                return
+            elif response.status_code != 200:
+                LOG.warning("Vehicle health warnings request failed with status %d for vehicle %s", response.status_code, vin)
+                return
+
+            data = response.json()
+            url_used = url
+
+        except requests.RequestException as e:
+            LOG.warning("Failed to fetch vehicle health warnings for %s: %s", vin, e)
+            return
+
+        try:
+            # Log the raw response for debugging
+            LOG_API.debug("RAW API RESPONSE for %s: %s", url_used, json.dumps(data, indent=2))
+
+            # The response has a nested 'data' field containing HealthWarnings
+            if not isinstance(data, dict) or "data" not in data:
+                LOG.debug("Unexpected response structure for vehicle health warnings: %s", data)
+                return
+
+            warnings_data = data["data"]
+
+            # Get timestamp
+            captured_at = datetime.now(timezone.utc)
+            if isinstance(warnings_data, dict) and "carCapturedTimestamp" in warnings_data:
+                captured_at = robust_time_parse(warnings_data["carCapturedTimestamp"])
+
+            # Update service availability flags
+            if isinstance(warnings_data, dict):
+                if "warningsServiceAvailable" in warnings_data:
+                    vehicle.warnings.service_available._set_value(
+                        warnings_data["warningsServiceAvailable"], measured=captured_at
+                    )
+                if "warningsServiceHasNoActiveLicense" in warnings_data:
+                    vehicle.warnings.has_active_license._set_value(
+                        not warnings_data["warningsServiceHasNoActiveLicense"], measured=captured_at
+                    )
+                if "areWakeUpWarningsSupported" in warnings_data:
+                    vehicle.warnings.wake_up_warnings_supported._set_value(
+                        warnings_data["areWakeUpWarningsSupported"], measured=captured_at
+                    )
+
+                # Process warnings array
+                if "warnings" in warnings_data and isinstance(warnings_data["warnings"], list):
+                    warnings_list = warnings_data["warnings"]
+                    vehicle.warnings.update_warnings(warnings_list, captured_at)
+                    LOG.debug("Updated %d vehicle health warnings for vehicle %s", len(warnings_list), vin)
+                else:
+                    LOG.debug("No warnings array found in response for vehicle %s", vin)
+
+        except Exception as e:
+            LOG.warning("Failed to process vehicle health warnings for %s: %s", vin, e)
+            LOG.debug("Warnings processing error details:", exc_info=True)
 
     def _convert_to_pil_image(self, image_data: dict):
         """
@@ -3159,6 +3261,139 @@ class Connector(BaseConnector):
         except Exception as e:
             LOG.warning("Error fetching vehicle images for VIN %s: %s", vin, e)
 
+    def fetch_vehicle_specification(self, vehicle: AudiVehicle) -> None:
+        """
+        Fetch vehicle specification from VGQL (Vehicle GraphQL) API.
+
+        This method retrieves complete vehicle specifications including technical specs,
+        equipment, colors, and consumption data from Audi's GraphQL endpoint.
+
+        Args:
+            vehicle: The AudiVehicle instance to fetch specification for
+        """
+        if not vehicle or not vehicle.vin or not vehicle.vin.value:
+            LOG.warning("Cannot fetch specification: vehicle or VIN not available")
+            return
+
+        vin = vehicle.vin.value
+        LOG.info("Fetching vehicle specification from VGQL API for VIN %s", vin)
+
+        try:
+            # Use the same GraphQL endpoint as vehicle images
+            graphql_url = "https://app-api.live-my.audi.com/vgql/v1/graphql"
+
+            # Get the access token from the session
+            if (
+                not hasattr(self, "session")
+                or not self.session
+                or not hasattr(self.session, "access_token")
+                or not self.session.access_token
+            ):
+                LOG.warning("No valid session or access token available for VGQL API")
+                return
+
+            # GraphQL query for vehicle configuration
+            # Query structure based on successful VGQL API exploration
+            query = """
+            query configuration($vehicleCoreId: String!) {
+                vehicle(vehicleCoreId: $vehicleCoreId) {
+                    techSpecs {
+                        key
+                        name
+                        value
+                        unit
+                        groupId
+                        groupName
+                    }
+                    equipments {
+                        code
+                        name
+                        categoryId
+                        categoryName
+                        subCategoryId
+                        subCategoryName
+                        standard
+                    }
+                    media {
+                        interiorColor
+                        exteriorColor
+                    }
+                }
+            }
+            """
+
+            # Prepare the GraphQL request
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self.session.access_token}",
+                "User-Agent": "myAudi-Android/5.0.1",
+                "apollographql-client-name": "MyAudi-Android",
+                "apollographql-client-version": "5.0.1",
+            }
+
+            payload = {
+                "query": query,
+                "variables": {"vehicleCoreId": vin},
+            }
+
+            # Make the request
+            response = self.session.post(graphql_url, json=payload, headers=headers, allow_redirects=False)
+
+            if response.status_code != 200:
+                LOG.warning(
+                    "Failed to fetch vehicle specification from VGQL: HTTP %s for VIN %s. Response: %s",
+                    response.status_code,
+                    vin,
+                    response.text[:500] if hasattr(response, "text") else "No response text",
+                )
+                return
+
+            # Parse the response
+            try:
+                data = response.json()
+            except Exception as json_error:
+                LOG.warning("Failed to parse VGQL response as JSON for VIN %s: %s", vin, json_error)
+                return
+
+            # Check for GraphQL errors
+            if "errors" in data:
+                LOG.warning("GraphQL errors in VGQL response for VIN %s: %s", vin, data["errors"])
+                return
+
+            # Extract vehicle data
+            if "data" not in data or "vehicle" not in data["data"]:
+                LOG.warning("No vehicle data in VGQL response for VIN %s", vin)
+                return
+
+            vehicle_data = data["data"]["vehicle"]
+            LOG.debug("VGQL response structure: %s", list(vehicle_data.keys()))
+
+            # Extract and store each section separately
+            specs_count = 0
+
+            # Technical specifications - dynamically populate grouped structure (now under specification)
+            if "techSpecs" in vehicle_data and vehicle_data["techSpecs"]:
+                vehicle.specification.techspecs.populate_from_data(vehicle_data["techSpecs"])
+                specs_count = len(vehicle_data["techSpecs"])
+
+            # Equipment list - dynamically populate grouped by category (now under specification)
+            if "equipments" in vehicle_data and vehicle_data["equipments"]:
+                vehicle.specification.equipments.populate_from_data(vehicle_data["equipments"])
+
+            # Media (colors) - dynamically populate based on response content (now under specification)
+            if "media" in vehicle_data and vehicle_data["media"]:
+                vehicle.specification.media.populate_from_data(vehicle_data["media"])
+
+            LOG.info(
+                "Successfully fetched vehicle specification with %d technical specs for VIN %s",
+                specs_count,
+                vin,
+            )
+
+        except Exception as e:
+            LOG.warning("Error fetching vehicle specification for VIN %s: %s", vin, e)
+
     def _record_elapsed(self, elapsed: timedelta) -> None:
         """
         Records the elapsed time.
@@ -3194,7 +3429,7 @@ class Connector(BaseConnector):
                 if status_response.status_code in (requests.codes["ok"], requests.codes["multiple_status"]):
                     data = status_response.json()
                     # Log raw API response for debugging
-                    LOG_RAW_API.debug("RAW API RESPONSE for %s: %s", url, json.dumps(data, indent=2, default=str))
+                    LOG_API.debug("RAW API RESPONSE for %s: %s", url, json.dumps(data, indent=2, default=str))
                     if session.cache is not None:
                         session.cache[url] = (data, str(datetime.utcnow()))
                 elif status_response.status_code == requests.codes["no_content"] and allow_empty:
@@ -3212,7 +3447,7 @@ class Connector(BaseConnector):
                     if status_response.status_code in (requests.codes["ok"], requests.codes["multiple_status"]):
                         data = status_response.json()
                         # Log raw API response for debugging
-                        LOG_RAW_API.debug(
+                        LOG_API.debug(
                             "RAW API RESPONSE for %s (after re-auth): %s", url, json.dumps(data, indent=2, default=str)
                         )
                         if session.cache is not None:
