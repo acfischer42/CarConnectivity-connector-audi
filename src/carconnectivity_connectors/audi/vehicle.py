@@ -359,6 +359,8 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
                 self.specification.media = Media(specification=self.specification)
             # Enable specification so it shows in WebUI
             self.specification.enabled = True
+            # Disable the base window_heatings object to avoid duplicate in UI
+            self.window_heatings.enabled = False
             if SUPPORT_IMAGES:
                 self._car_images = origin._car_images
         else:

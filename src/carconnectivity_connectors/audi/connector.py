@@ -75,15 +75,12 @@ from carconnectivity_connectors.audi.vehicle import (
     AudiVehicle,
 )
 
+# Check if PIL is available for image support
 SUPPORT_IMAGES = False
 try:
-    import base64
-    import io
-
-    from PIL import Image
+    import PIL  # noqa: F401
 
     SUPPORT_IMAGES = True
-    from carconnectivity.attributes import ImageAttribute
 except ImportError:
     # PIL is optional - continue without image support if not available
     pass
@@ -597,109 +594,6 @@ class Connector(BaseConnector):
                                 lock_unlock_command._add_on_set_hook(self.__on_lock_unlock)  # pylint: disable=protected-access
                                 lock_unlock_command.enabled = True
                                 vehicle.doors.commands.add_command(lock_unlock_command)
-
-                        if SUPPORT_IMAGES:
-                            # Try multiple vehicle images URL patterns with proper parameters and headers
-                            vin = vehicle_dict["vin"]
-
-                            # Headers combining OAuth authentication with browser-like properties
-                            image_headers = {
-                                "Accept": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
-                                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0",
-                                "Accept-Language": "en-US,en;q=0.9",
-                                "Accept-Encoding": "gzip, deflate, br",
-                                "Referer": "https://my.audi.com/",
-                                "Sec-Fetch-Dest": "image",
-                                "Sec-Fetch-Mode": "no-cors",
-                                "Sec-Fetch-Site": "cross-site",
-                            }
-
-                            # FALLBACK: Try the confirmed working media.audi.com with OAuth authentication
-                            # This endpoint was proven to return actual vehicle images from website traffic
-                            image_url = f"https://media.audi.com/is/image/audi/global/assets/vehicles/{vin}?width=800"
-
-                            LOG.debug("Trying vehicle images URL: %s", image_url)
-                            # Use direct HTTP request for binary image data (not JSON API)
-                            try:
-                                image_response = self.session.get(image_url, headers=image_headers, stream=True)
-                                if image_response.status_code == requests.codes["ok"]:
-                                    img = Image.open(image_response.raw)
-                                    LOG.info("Successfully loaded vehicle image from %s", image_url)
-
-                                    # Cache the image if caching is enabled
-                                    if self.session.cache is not None:
-                                        buffered = io.BytesIO()
-                                        img.save(buffered, format="PNG")
-                                        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                                        self.session.cache[image_url] = (img_str, str(datetime.utcnow()))
-
-                                    # Store the image in the vehicle
-                                    vehicle._car_images["media_audi_image"] = img  # pylint: disable=protected-access
-
-                                    # Set as the main car picture
-                                    if "car_picture" in vehicle.images.images:
-                                        vehicle.images.images["car_picture"]._set_value(
-                                            img
-                                        )  # pylint: disable=protected-access
-                                    else:
-                                        vehicle.images.images["car_picture"] = ImageAttribute(
-                                            name="car_picture",
-                                            parent=vehicle.images,
-                                            value=img,
-                                            tags={"carconnectivity"},
-                                        )
-                                    LOG.info("Vehicle image successfully set for VIN %s", vin)
-                                elif image_response.status_code == requests.codes["unauthorized"]:
-                                    LOG.info("Server asks for new authorization for image download")
-                                    self.session.login()
-                                    # Retry after login
-                                    image_response = self.session.get(image_url, headers=image_headers, stream=True)
-                                    if image_response.status_code == requests.codes["ok"]:
-                                        img = Image.open(image_response.raw)
-                                        LOG.info(
-                                            "Successfully loaded vehicle image from %s after re-authentication", image_url
-                                        )
-
-                                        # Cache and store the image
-                                        if self.session.cache is not None:
-                                            buffered = io.BytesIO()
-                                            img.save(buffered, format="PNG")
-                                            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                                            self.session.cache[image_url] = (img_str, str(datetime.utcnow()))
-
-                                        vehicle._car_images["media_audi_image"] = img  # pylint: disable=protected-access
-                                        if "car_picture" in vehicle.images.images:
-                                            vehicle.images.images["car_picture"]._set_value(
-                                                img
-                                            )  # pylint: disable=protected-access
-                                        else:
-                                            vehicle.images.images["car_picture"] = ImageAttribute(
-                                                name="car_picture",
-                                                parent=vehicle.images,
-                                                value=img,
-                                                tags={"carconnectivity"},
-                                            )
-                                        LOG.info("Vehicle image successfully set for VIN %s after re-authentication", vin)
-                                    else:
-                                        LOG.warning(
-                                            "Failed to load vehicle image from %s even after " "re-authentication: %s",
-                                            image_url,
-                                            image_response.status_code,
-                                        )
-                                else:
-                                    LOG.warning(
-                                        "Failed to load vehicle image from %s: HTTP %s", image_url, image_response.status_code
-                                    )
-                            except requests.exceptions.ConnectionError as connection_error:
-                                LOG.warning("Connection error while fetching vehicle image: %s", connection_error)
-                            except requests.exceptions.ChunkedEncodingError as chunked_encoding_error:
-                                LOG.warning("Chunked encoding error while fetching vehicle image: %s", chunked_encoding_error)
-                            except requests.exceptions.ReadTimeout as timeout_error:
-                                LOG.warning("Timeout while fetching vehicle image: %s", timeout_error)
-                            except requests.exceptions.RetryError as retry_error:
-                                LOG.warning("Retry error while fetching vehicle image: %s", retry_error)
-                            except Exception as e:
-                                LOG.warning("Unexpected error while processing vehicle image: %s", e)
                     else:
                         raise APIError("Could not fetch vehicle data, VIN missing")
         for vin in set(garage.list_vehicle_vins()) - seen_vehicle_vins:
@@ -2073,6 +1967,7 @@ class Connector(BaseConnector):
                     vehicle.climatization.settings.seat_heating._set_value(None)  # pylint: disable=protected-access
                     vehicle.climatization.settings.heater_source._set_value(None)  # pylint: disable=protected-access
 
+                # Process window heating status
                 if "windowHeatingStatus" in data["climatisation"] and data["climatisation"]["windowHeatingStatus"] is not None:
                     if (
                         "value" in data["climatisation"]["windowHeatingStatus"]
@@ -2154,6 +2049,8 @@ class Connector(BaseConnector):
                                     vehicle.window_heatings.heating_state._set_value(
                                         WindowHeatings.HeatingState.OFF, measured=captured_at
                                     )
+                            # Enable window_heatings object now that we have populated it with data
+                            vehicle.window_heatings.enabled = True
                         if (
                             vehicle.window_heatings is not None
                             and vehicle.window_heatings.commands is not None
