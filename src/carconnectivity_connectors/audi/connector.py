@@ -148,9 +148,11 @@ class Connector(BaseConnector):
         max_age (Optional[int]): Maximum age for cached data in seconds.
     """
 
-    def __init__(self, connector_id: str, car_connectivity: CarConnectivity, config: Dict) -> None:
+    def __init__(self, connector_id: str, car_connectivity: CarConnectivity, config: Dict,
+                 initialization: Optional[Dict] = None) -> None:
         BaseConnector.__init__(
-            self, connector_id=connector_id, car_connectivity=car_connectivity, config=config, log=LOG, api_log=LOG_API
+            self, connector_id=connector_id, car_connectivity=car_connectivity, config=config, log=LOG, api_log=LOG_API,
+            initialization=initialization
         )
 
         self._background_thread: Optional[threading.Thread] = None
@@ -162,18 +164,22 @@ class Connector(BaseConnector):
             value_type=ConnectionState,
             value=ConnectionState.DISCONNECTED,
             tags={"connector_custom"},
+            initialization=self.get_initialization("connection_state"),
         )
-        self.interval: DurationAttribute = DurationAttribute(name="interval", parent=self, tags={"connector_custom"})
+        self.interval: DurationAttribute = DurationAttribute(name="interval", parent=self, tags={"connector_custom"},
+                                                             initialization=self.get_initialization("interval"))
         self.interval.minimum = timedelta(seconds=180)
         self.interval._is_changeable = True  # pylint: disable=protected-access
 
         self.commands: Commands = Commands(parent=self)
 
         # Add global rawAPI endpoints
-        self.rawAPI: GenericObject = GenericObject(object_id="rawAPI", parent=self)
-        self.rawAPI.vehicles = GenericAttribute("vehicles", self.rawAPI, value=None, tags={"connector_custom", "rawapi"})
+        self.rawAPI: GenericObject = GenericObject(object_id="rawAPI", parent=self, initialization=self.get_initialization("rawAPI"))
+        self.rawAPI.vehicles = GenericAttribute("vehicles", self.rawAPI, value=None, tags={"connector_custom", "rawapi"},
+                                                initialization=self.get_initialization("rawAPI.vehicles"))
         self.rawAPI.capabilities = GenericAttribute(
-            "capabilities", self.rawAPI, value=None, tags={"connector_custom", "rawapi"}
+            "capabilities", self.rawAPI, value=None, tags={"connector_custom", "rawapi"},
+            initialization=self.get_initialization("rawAPI.capabilities")
         )
 
         LOG.info("Loading audi connector with config %s", config_remove_credentials(config))
@@ -231,6 +237,11 @@ class Connector(BaseConnector):
         if "max_age" in config:
             self.active_config["max_age"] = config["max_age"]
         self.interval._set_value(timedelta(seconds=self.active_config["interval"]))  # pylint: disable=protected-access
+        self.active_config['online_timeout'] = self.active_config['interval'] + 60
+        if 'online_timeout' in config:
+            self.active_config['online_timeout'] = config['online_timeout']
+        self.online_timeout: timedelta = timedelta(seconds=self.active_config['online_timeout'])
+
 
         if self.active_config["username"] is None or self.active_config["password"] is None:
             raise AuthenticationError("Username or password not provided")
@@ -479,7 +490,8 @@ class Connector(BaseConnector):
                             vehicle_dict["vin"]
                         )  # pyright: ignore[reportAssignmentType]
                         if vehicle is None:
-                            vehicle = AudiVehicle(vin=vehicle_dict["vin"], garage=garage, managing_connector=self)
+                            vehicle = AudiVehicle(vin=vehicle_dict["vin"], garage=garage, managing_connector=self,
+                                                  initialization=garage.get_initialization(vehicle_dict["vin"]))
                             garage.add_vehicle(vehicle_dict["vin"], vehicle)
 
                         if "nickname" in vehicle_dict and vehicle_dict["nickname"] is not None:
@@ -503,7 +515,8 @@ class Connector(BaseConnector):
                                             capability_id
                                         )  # pyright: ignore[reportAssignmentType]
                                     else:
-                                        capability = Capability(capability_id=capability_id, capabilities=vehicle.capabilities)
+                                        capability = Capability(capability_id=capability_id, capabilities=vehicle.capabilities,
+                                                                initialization=vehicle.capabilities.get_initialization(capability_id))
                                         vehicle.capabilities.add_capability(capability_id, capability)
                                     if "expirationDate" in capability_dict and capability_dict["expirationDate"] is not None:
                                         expiration_date: datetime = robust_time_parse(capability_dict["expirationDate"])
@@ -720,9 +733,9 @@ class Connector(BaseConnector):
                 and vehicle.connection_state.enabled
                 and vehicle.connection_state.value == GenericVehicle.ConnectionState.OFFLINE
             ):
-                vehicle.state._set_value(GenericVehicle.State.OFFLINE)
+                vehicle.state._set_value(GenericVehicle.State.OFFLINE, measured=vehicle.connection_state.last_updated)
             elif vehicle.is_active is not None and vehicle.is_active.enabled and vehicle.is_active.value:
-                vehicle.state._set_value(GenericVehicle.State.IGNITION_ON)  # pylint: disable=protected-access
+                vehicle.state._set_value(GenericVehicle.State.IGNITION_ON, measured=vehicle.is_active.last_updated)  # pylint: disable=protected-access
             elif (
                 vehicle.position is not None
                 and vehicle.position.enabled
@@ -730,7 +743,7 @@ class Connector(BaseConnector):
                 and vehicle.position.position_type.enabled
                 and vehicle.position.position_type.value == Position.PositionType.PARKING
             ):
-                vehicle.state._set_value(GenericVehicle.State.PARKED)  # pylint: disable=protected-access
+                vehicle.state._set_value(GenericVehicle.State.PARKED, measured=vehicle.position.position_type.last_updated)  # pylint: disable=protected-access
             else:
                 vehicle.state._set_value(GenericVehicle.State.UNKNOWN)  # pylint: disable=protected-access
 
@@ -837,6 +850,7 @@ class Connector(BaseConnector):
                     if "carCapturedTimestamp" not in range_status or range_status["carCapturedTimestamp"] is None:
                         raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                     captured_at: datetime = robust_time_parse(range_status["carCapturedTimestamp"])
+                    self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
 
                     # Handle vehicle type promotion
                     if "carType" in range_status and range_status["carType"] is not None:
@@ -894,9 +908,11 @@ class Connector(BaseConnector):
                                 drive: GenericDrive = vehicle.drives.drives[drive_id]
                             else:
                                 if engine_type == GenericDrive.Type.ELECTRIC:
-                                    drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives)
+                                    drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                          initialization=vehicle.drives.get_initialization(drive_id))
                                 elif engine_type == GenericDrive.Type.DIESEL:
-                                    drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives)
+                                    drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                        initialization=vehicle.drives.get_initialization(drive_id))
                                 elif engine_type in [
                                     GenericDrive.Type.FUEL,
                                     GenericDrive.Type.GASOLINE,
@@ -904,9 +920,11 @@ class Connector(BaseConnector):
                                     GenericDrive.Type.CNG,
                                     GenericDrive.Type.LPG,
                                 ]:
-                                    drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives)
+                                    drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                            initialization=vehicle.drives.get_initialization(drive_id))
                                 else:
-                                    drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives)
+                                    drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                         initialization=vehicle.drives.get_initialization(drive_id))
                                 drive.type._set_value(engine_type)  # pylint: disable=protected-access
                                 vehicle.drives.add_drive(drive)
 
@@ -1061,9 +1079,11 @@ class Connector(BaseConnector):
                                     drive: GenericDrive = vehicle.drives.drives[drive_id]
                                 else:
                                     if engine_type == GenericDrive.Type.ELECTRIC:
-                                        drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                              initialization=vehicle.drives.get_initialization(drive_id))
                                     elif engine_type == GenericDrive.Type.DIESEL:
-                                        drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                            initialization=vehicle.drives.get_initialization(drive_id))
                                     elif engine_type in [
                                         GenericDrive.Type.FUEL,
                                         GenericDrive.Type.GASOLINE,
@@ -1071,9 +1091,11 @@ class Connector(BaseConnector):
                                         GenericDrive.Type.CNG,
                                         GenericDrive.Type.LPG,
                                     ]:
-                                        drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                                initialization=vehicle.drives.get_initialization(drive_id))
                                     else:
-                                        drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                             initialization=vehicle.drives.get_initialization(drive_id))
                                     drive.type._set_value(engine_type)  # pylint: disable=protected-access
                                     vehicle.drives.add_drive(drive)
                                 if (
@@ -1168,6 +1190,7 @@ class Connector(BaseConnector):
                     ):
                         fuel_level_status = data["measurements"]["fuelLevelStatus"]["value"]
                         captured_at: datetime = robust_time_parse(fuel_level_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         # Check vehicle type and if it does not match the current vehicle type, create a new vehicle
                         # object using copy constructor
                         if "carType" in fuel_level_status and fuel_level_status["carType"] is not None:
@@ -1235,9 +1258,11 @@ class Connector(BaseConnector):
                                     drive: GenericDrive = vehicle.drives.drives[drive_id]
                                 else:
                                     if engine_type == GenericDrive.Type.ELECTRIC:
-                                        drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = ElectricDrive(drive_id=drive_id, drives=vehicle.drives, 
+                                                              initialization=vehicle.drives.get_initialization(drive_id))
                                     elif engine_type == GenericDrive.Type.DIESEL:
-                                        drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = DieselDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                            initialization=vehicle.drives.get_initialization(drive_id))
                                     elif engine_type in [
                                         GenericDrive.Type.FUEL,
                                         GenericDrive.Type.GASOLINE,
@@ -1245,9 +1270,11 @@ class Connector(BaseConnector):
                                         GenericDrive.Type.CNG,
                                         GenericDrive.Type.LPG,
                                     ]:
-                                        drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = CombustionDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                                initialization=vehicle.drives.get_initialization(drive_id))
                                     else:
-                                        drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives)
+                                        drive = GenericDrive(drive_id=drive_id, drives=vehicle.drives,
+                                                             initialization=vehicle.drives.get_initialization(drive_id))
                                     drive.type._set_value(engine_type)  # pylint: disable=protected-access
                                     vehicle.drives.add_drive(drive)
                         if (
@@ -1296,6 +1323,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in range_status or range_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(range_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "electricRange" in range_status and range_status["electricRange"] is not None:
                             if isinstance(vehicle, AudiElectricVehicle):
                                 electric_drive: Optional[ElectricDrive] = vehicle.get_electric_drive()
@@ -1335,6 +1363,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in odometer_status or odometer_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(odometer_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "odometer" in odometer_status and odometer_status["odometer"] is not None:
                             # pylint: disable-next=protected-access
                             vehicle.odometer._set_value(
@@ -1361,6 +1390,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(temperature_outside_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if (
                             "temperatureOutside_K" in temperature_outside_status
                             and temperature_outside_status["temperatureOutside_K"] is not None
@@ -1394,6 +1424,7 @@ class Connector(BaseConnector):
                                 ):
                                     raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                                 captured_at: datetime = robust_time_parse(temperature_battery_status["carCapturedTimestamp"])
+                                self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                                 if (
                                     "temperatureHvBatteryMin_K" in temperature_battery_status
                                     and temperature_battery_status["temperatureHvBatteryMin_K"] is not None
@@ -1460,6 +1491,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in access_status or access_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(access_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         seen_door_ids: set[str] = set()
                         if "doors" in access_status and access_status["doors"] is not None:
                             all_doors_closed = True
@@ -1470,7 +1502,8 @@ class Connector(BaseConnector):
                                     if door_id in vehicle.doors.doors:
                                         door: Doors.Door = vehicle.doors.doors[door_id]
                                     else:
-                                        door = Doors.Door(door_id=door_id, doors=vehicle.doors)
+                                        door = Doors.Door(door_id=door_id, doors=vehicle.doors,
+                                                          initialization=vehicle.doors.get_initialization(door_id))
                                         vehicle.doors.doors[door_id] = door
                                     if "status" in door_status and door_status["status"] is not None:
                                         if "locked" in door_status["status"]:
@@ -1565,7 +1598,8 @@ class Connector(BaseConnector):
                                     if window_id in vehicle.windows.windows:
                                         window: Windows.Window = vehicle.windows.windows[window_id]
                                     else:
-                                        window = Windows.Window(window_id=window_id, windows=vehicle.windows)
+                                        window = Windows.Window(window_id=window_id, windows=vehicle.windows,
+                                                                initialization=vehicle.windows.get_initialization(window_id))
                                         vehicle.windows.windows[window_id] = window
                                     if "status" in window_status and window_status["status"] is not None:
                                         if "closed" in window_status["status"]:
@@ -1627,6 +1661,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in lights_status or lights_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(lights_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "lights" in lights_status and lights_status["lights"] is not None:
                             all_lights_off = True
                             for light_status in lights_status["lights"]:
@@ -1636,7 +1671,8 @@ class Connector(BaseConnector):
                                     if light_id in vehicle.lights.lights:
                                         light: Lights.Light = vehicle.lights.lights[light_id]
                                     else:
-                                        light: Lights.Light = Lights.Light(light_id=light_id, lights=vehicle.lights)
+                                        light: Lights.Light = Lights.Light(light_id=light_id, lights=vehicle.lights,
+                                                                           initialization=vehicle.lights.get_initialization(light_id))
                                         vehicle.lights.lights[light_id] = light
                                     if "status" in light_status and light_status["status"] is not None:
                                         if light_status["status"] == "on":
@@ -1710,6 +1746,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(climatisation_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if (
                             "climatisationState" in climatisation_status
                             and climatisation_status["climatisationState"] is not None
@@ -1773,6 +1810,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(climatisation_settings["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         preferred_unit: Temperature = Temperature.C
                         precision: float = 0.5
                         if "unitInCar" in climatisation_settings and climatisation_settings["unitInCar"] is not None:
@@ -2043,6 +2081,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(window_heating_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if (
                             "windowHeatingStatus" in window_heating_status
                             and window_heating_status["windowHeatingStatus"] is not None
@@ -2056,7 +2095,8 @@ class Connector(BaseConnector):
                                         window: WindowHeatings.WindowHeating = vehicle.window_heatings.windows[window_id]
                                     else:
                                         window = WindowHeatings.WindowHeating(
-                                            window_id=window_id, window_heatings=vehicle.window_heatings
+                                            window_id=window_id, window_heatings=vehicle.window_heatings,
+                                            initialization=vehicle.window_heatings.get_initialization(window_id)
                                         )
                                         vehicle.window_heatings.windows[window_id] = window
                                     if (
@@ -2152,6 +2192,7 @@ class Connector(BaseConnector):
                             LOG.warning("Could not fetch climatisation timers, carCapturedTimestamp missing")
                         else:
                             captured_at: datetime = robust_time_parse(timers_status["carCapturedTimestamp"])
+                            self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                             if "timers" in timers_status and timers_status["timers"] is not None:
                                 # Ensure we have an AudiClimatization object with timers
                                 if not isinstance(vehicle.climatization, AudiClimatization):
@@ -2191,6 +2232,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in charging_status or charging_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(charging_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "chargingState" in charging_status and charging_status["chargingState"] is not None:
                             if charging_status["chargingState"] in [item.value for item in AudiCharging.AudiChargingState]:
                                 audi_charging_state = AudiCharging.AudiChargingState(charging_status["chargingState"])
@@ -2288,6 +2330,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(charging_settings["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if (
                             "maxChargeCurrentAC_A" in charging_settings
                             and charging_settings["maxChargeCurrentAC_A"] is not None
@@ -2398,6 +2441,7 @@ class Connector(BaseConnector):
                         if "carCapturedTimestamp" not in plug_status or plug_status["carCapturedTimestamp"] is None:
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(plug_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "plugConnectionState" in plug_status and plug_status["plugConnectionState"] is not None:
                             if plug_status["plugConnectionState"] in [
                                 item.value for item in ChargingConnector.ChargingConnectorConnectionState
@@ -2494,6 +2538,7 @@ class Connector(BaseConnector):
                         ):
                             raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
                         captured_at: datetime = robust_time_parse(maintenance_status["carCapturedTimestamp"])
+                        self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
                         if "inspectionDue_days" in maintenance_status and maintenance_status["inspectionDue_days"] is not None:
                             inspection_due: timedelta = timedelta(days=maintenance_status["inspectionDue_days"])
                             inspection_date: datetime = captured_at + inspection_due
@@ -2667,6 +2712,7 @@ class Connector(BaseConnector):
             if "carCapturedTimestamp" not in data["data"] or data["data"]["carCapturedTimestamp"] is None:
                 raise APIError("Could not fetch vehicle status, carCapturedTimestamp missing")
             captured_at: datetime = robust_time_parse(data["data"]["carCapturedTimestamp"])
+            self._update_online_tracking(vehicle=vehicle, last_measurement=captured_at)
 
             if (
                 "lat" in data["data"]
@@ -2864,6 +2910,31 @@ class Connector(BaseConnector):
 
         except Exception as e:
             LOG.warning("Error fetching vehicle images for VIN %s: %s", vin, e)
+
+    def _update_online_tracking(self, vehicle: AudiVehicle, last_measurement: Optional[datetime]) -> None:
+        if last_measurement is not None and (vehicle.last_measurement is None or last_measurement > vehicle.last_measurement):
+            if (last_measurement + self.online_timeout) > datetime.now(tz=timezone.utc):
+                rest_timeout: timedelta = (last_measurement + self.online_timeout) - datetime.now(tz=timezone.utc)
+                # Only set to online if the timeout is greater than 60 seconds
+                if rest_timeout.total_seconds() > 60:
+                    LOG.info('Vehicle %s is online', vehicle.vin.value)
+                    vehicle.connection_state._set_value(GenericVehicle.ConnectionState.ONLINE)  # pylint: disable=protected-access
+                    if vehicle.online_timeout_timer is not None:
+                        vehicle.online_timeout_timer.cancel()
+                    rest_timeout = (last_measurement + self.online_timeout) - datetime.now(tz=timezone.utc)
+                    vehicle.online_timeout_timer = threading.Timer(rest_timeout.total_seconds(), self._set_vehicle_offline, args=[vehicle])
+                    vehicle.online_timeout_timer.start()
+            vehicle.last_measurement = last_measurement
+
+    def _set_vehicle_offline(self, vehicle: AudiVehicle) -> None:
+        last_online_measurement: Optional[datetime] = vehicle.last_measurement
+        # The car goes offline approximatly 2 minutes after the last measurement
+        if last_online_measurement is not None:
+            last_online_measurement += timedelta(seconds=120)
+        vehicle.connection_state._set_value(vehicle.official_connection_state, measured=last_online_measurement)  # pylint: disable=protected-access
+        vehicle.online_timeout_timer = None
+        if vehicle.official_connection_state is not None:
+            LOG.info('Vehicle %s went from online to %s', vehicle.vin.value, vehicle.official_connection_state.value)
 
     def _record_elapsed(self, elapsed: timedelta) -> None:
         """
