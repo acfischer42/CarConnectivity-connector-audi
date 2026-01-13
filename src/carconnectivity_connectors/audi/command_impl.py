@@ -24,8 +24,9 @@ class SpinCommand(GenericCommand):
 
     """
 
-    def __init__(self, name: str = "spin", parent: Optional[GenericObject] = None) -> None:
-        super().__init__(name=name, parent=parent)
+    def __init__(self, name: str = "spin", parent: Optional[GenericObject] = None,
+                 initialization: Optional[Dict] = None) -> None:
+        super().__init__(name=name, parent=parent, initialization=initialization)
 
     @property
     def value(self) -> Optional[Union[str, Dict]]:
