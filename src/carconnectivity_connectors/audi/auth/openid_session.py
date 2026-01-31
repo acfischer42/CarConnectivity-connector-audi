@@ -330,14 +330,28 @@ class OpenIDSession(requests.Session):
             str: The complete authorization URL with the necessary query parameters.
         """
         state = state or self.state
+        # Generate PKCE code verifier and challenge (required for modern OAuth2 flows)
+        import hashlib
+        import base64
+        import secrets
+        code_verifier = secrets.token_urlsafe(64)[:128]  # 128 char code verifier
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode('ascii')).digest()
+        ).decode('ascii').rstrip('=')
+
+        # Store code_verifier for token exchange
+        self._code_verifier = code_verifier
+
         auth_url = prepare_grant_uri(
             uri=url,
             client_id=self.client_id,
             redirect_uri=self.redirect_uri,
-            response_type="code id_token token",
+            response_type="code",
             scope=self.scope,
             state=state,
             nonce=generate_nonce(),
+            code_challenge=code_challenge,
+            code_challenge_method="S256",
             **kwargs,
         )
         return auth_url
@@ -355,7 +369,7 @@ class OpenIDSession(requests.Session):
         """
         state = state or self.state
 
-        # First try to extract tokens from URL fragment or query parameters (implicit flow)
+        # First try to extract tokens from URL fragment or query parameters
         try:
             from urllib.parse import parse_qs, urlparse
 
@@ -367,13 +381,13 @@ class OpenIDSession(requests.Session):
             if parsed_url.fragment:
                 params_to_parse = parsed_url.fragment
                 source_type = "fragment"
-            elif parsed_url.query and "access_token" in parsed_url.query:
-                # Then try query parameters (converted format: https://egal?token=...)
+            elif parsed_url.query:
+                # Then try query parameters (authorization code flow or converted format)
                 params_to_parse = parsed_url.query
                 source_type = "query"
 
             if params_to_parse:
-                LOG.debug(f"Found {source_type}, parsing implicit flow response")
+                LOG.debug(f"Found {source_type}, parsing authorization response")
                 token_params = parse_qs(params_to_parse)
 
                 # Convert lists to single values (parse_qs returns lists)
@@ -382,9 +396,19 @@ class OpenIDSession(requests.Session):
                     if values:
                         token_data[key] = values[0]
 
-                LOG.debug(f"Extracted token data from {source_type}: {list(token_data.keys())}")
+                LOG.debug(f"Extracted data from {source_type}: {list(token_data.keys())}")
 
-                # Check if we have the required tokens
+                # Check for authorization code flow (code parameter)
+                if "code" in token_data:
+                    LOG.info("Authorization code received, storing for token exchange")
+                    self.token = {
+                        "code": token_data["code"],
+                    }
+                    if "state" in token_data:
+                        self.token["state"] = token_data["state"]
+                    return self.token
+
+                # Check if we have the required tokens (implicit flow)
                 if "access_token" in token_data:
                     # Build proper token structure
                     self.token = {
