@@ -67,7 +67,7 @@ class AudiWebSession(OpenIDSession):
         }
 
         # Set up the web session
-        retries = Retry(total=self.retries, backoff_factor=0.1, status_forcelist=[500], raise_on_status=False)
+        retries = Retry(total=self.retries, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], raise_on_status=False)
 
         self.websession: requests.Session = requests.Session()
         self.websession.proxies.update(self.proxies)

@@ -382,6 +382,7 @@ class WeConnectSession(AudiWebSession):
             raise AuthenticationError("Refreshing tokens failed: Server requests new authorization")
         if token_response.status_code in (
             requests.codes["internal_server_error"],
+            requests.codes["bad_gateway"],
             requests.codes["service_unavailable"],
             requests.codes["gateway_timeout"],
         ):
