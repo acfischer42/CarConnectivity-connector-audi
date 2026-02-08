@@ -24,9 +24,10 @@ class AudiClimatization(Climatization):  # pylint: disable=too-many-instance-att
     climatization states specific to Audi vehicles.
     """
 
-    def __init__(self, vehicle: GenericVehicle | None = None, origin: Optional[Climatization] = None) -> None:
+    def __init__(self, vehicle: GenericVehicle | None = None, origin: Optional[Climatization] = None,
+                 initialization: Optional[dict] = None) -> None:
         if origin is not None:
-            super().__init__(origin=origin)
+            super().__init__(origin=origin, initialization=initialization)
             if not isinstance(self.settings, AudiClimatization.Settings):
                 self.settings: Climatization.Settings = AudiClimatization.Settings(parent=self, origin=origin.settings)
             # Add timer support
@@ -34,34 +35,42 @@ class AudiClimatization(Climatization):  # pylint: disable=too-many-instance-att
                 self.timers: AudiClimatization.Timers = origin.timers
                 self.timers.parent = self
             else:
-                self.timers: AudiClimatization.Timers = AudiClimatization.Timers(parent=self)
+                self.timers: AudiClimatization.Timers = \
+                    AudiClimatization.Timers(parent=self, initialization=self.get_initialization("timers"))
         else:
-            super().__init__(vehicle=vehicle)
-            self.settings: Climatization.Settings = AudiClimatization.Settings(parent=self)
-            self.timers: AudiClimatization.Timers = AudiClimatization.Timers(parent=self)
+            super().__init__(vehicle=vehicle, initialization=initialization)
+            self.settings: Climatization.Settings = \
+                AudiClimatization.Settings(parent=self, initialization=self.get_initialization("settings"))
+            self.timers: AudiClimatization.Timers = \
+                AudiClimatization.Timers(parent=self, initialization=self.get_initialization("timers"))
 
     class Settings(Climatization.Settings):
         """
         This class represents the settings for an audi car climatization.
         """
 
-        def __init__(self, parent: Optional[GenericObject] = None, origin: Optional[Climatization.Settings] = None) -> None:
+        def __init__(self, parent: Optional[GenericObject] = None, origin: Optional[Climatization.Settings] = None,
+                     initialization: Optional[dict] = None) -> None:
             if origin is not None:
-                super().__init__(parent=parent, origin=origin)
+                super().__init__(parent=parent, origin=origin, initialization=initialization)
             else:
-                super().__init__(parent=parent)
+                super().__init__(parent=parent, initialization=initialization)
             self.unit_in_car: Optional[Temperature] = None
             self.front_zone_left_enabled: BooleanAttribute = BooleanAttribute(
-                parent=self, name="front_zone_left_enabled", tags={"connector_custom"}
+                parent=self, name="front_zone_left_enabled", tags={"connector_custom"},
+                initialization=self.get_initialization("front_zone_left_enabled")
             )
             self.front_zone_right_enabled: BooleanAttribute = BooleanAttribute(
-                parent=self, name="front_zone_right_enabled", tags={"connector_custom"}
+                parent=self, name="front_zone_right_enabled", tags={"connector_custom"},
+                initialization=self.get_initialization("front_zone_right_enabled")
             )
             self.rear_zone_left_enabled: BooleanAttribute = BooleanAttribute(
-                parent=self, name="rear_zone_left_enabled", tags={"connector_custom"}
+                parent=self, name="rear_zone_left_enabled", tags={"connector_custom"},
+                initialization=self.get_initialization("rear_zone_left_enabled")
             )
             self.rear_zone_right_enabled: BooleanAttribute = BooleanAttribute(
-                parent=self, name="rear_zone_right_enabled", tags={"connector_custom"}
+                parent=self, name="rear_zone_right_enabled", tags={"connector_custom"},
+                initialization=self.get_initialization("rear_zone_right_enabled")
             )
 
     class Timers(GenericObject):
@@ -69,11 +78,12 @@ class AudiClimatization(Climatization):  # pylint: disable=too-many-instance-att
         This class represents the timers for Audi car climatization.
         """
 
-        def __init__(self, parent: Optional[GenericObject] = None) -> None:
-            super().__init__(object_id="timers", parent=parent)
+        def __init__(self, parent: Optional[GenericObject] = None, initialization: Optional[dict] = None) -> None:
+            super().__init__(object_id="timers", parent=parent, initialization=initialization)
 
             # Raw timer data from API - will be updated with actual timer list
-            self.raw_data = GenericAttribute("raw_data", self, value=None, tags={"connector_custom"})
+            self.raw_data = GenericAttribute("raw_data", self, value=None, tags={"connector_custom"}
+                                              , initialization=self.get_initialization("raw_data"))
 
             # Individual timer objects will be created dynamically based on API response
             # Example: self.timer_1, self.timer_2, etc.
