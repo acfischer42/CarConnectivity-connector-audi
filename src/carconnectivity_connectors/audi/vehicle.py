@@ -77,9 +77,11 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
         garage: Optional[Garage] = None,
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
+        initialization: Optional[Dict] = None,
+        **kwargs,
     ) -> None:
         if origin is not None:
-            super().__init__(garage=garage, origin=origin)
+            super().__init__(garage=garage, origin=origin, initialization=initialization, **kwargs)
             self.capabilities: Capabilities = origin.capabilities
             self.capabilities.parent = self
             self.is_active: BooleanAttribute = origin.is_active
@@ -89,7 +91,7 @@ class AudiVehicle(GenericVehicle):  # pylint: disable=too-many-instance-attribut
             if SUPPORT_IMAGES:
                 self._car_images = origin._car_images
         else:
-            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
+            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector, initialization=initialization, **kwargs)
             self.capabilities: Capabilities = Capabilities(vehicle=self)
             self.climatization = AudiClimatization(vehicle=self, origin=self.climatization)
             self.is_active = BooleanAttribute(name="is_active", parent=self, tags={"connector_custom"})
@@ -124,12 +126,14 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
         garage: Optional[Garage] = None,
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
+        initialization: Optional[Dict] = None,
+        **kwargs,
     ) -> None:
         # Initialize parent classes through MRO - always call super().__init__()
         # CodeQL requires this call to be made in all code paths
         if origin is not None:
             # Initialize with origin-based parameters
-            super().__init__(garage=garage, origin=origin)
+            super().__init__(garage=garage, origin=origin, initialization=initialization, **kwargs)
             # Set up Audi-specific charging with origin
             if isinstance(origin, ElectricVehicle):
                 self.charging = AudiCharging(vehicle=self, origin=origin.charging)
@@ -137,7 +141,7 @@ class AudiElectricVehicle(ElectricVehicle, AudiVehicle):
                 self.charging = AudiCharging(vehicle=self, origin=self.charging)
         else:
             # Initialize with direct parameters
-            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
+            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector, initialization=initialization, **kwargs)
             # Set up Audi-specific charging without origin
             self.charging = AudiCharging(vehicle=self, origin=self.charging)
 
@@ -167,15 +171,17 @@ class AudiCombustionVehicle(CombustionVehicle, AudiVehicle):
         garage: Optional[Garage] = None,
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
+        initialization: Optional[Dict] = None,
+        **kwargs,
     ) -> None:
         # Initialize parent classes through MRO - always call super().__init__()
         # CodeQL requires this call to be made in all code paths
         if origin is not None:
             # Initialize with origin-based parameters
-            super().__init__(garage=garage, origin=origin)
+            super().__init__(garage=garage, origin=origin, initialization=initialization, **kwargs)
         else:
             # Initialize with direct parameters
-            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
+            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector, initialization=initialization, **kwargs)
 
 
 class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicle):
@@ -207,12 +213,14 @@ class AudiHybridVehicle(HybridVehicle, AudiElectricVehicle, AudiCombustionVehicl
         garage: Optional[Garage] = None,
         managing_connector: Optional[BaseConnector] = None,
         origin: Optional[AudiVehicle] = None,
+        initialization: Optional[Dict] = None,
+        **kwargs,
     ) -> None:
         # Initialize parent classes through MRO - always call super().__init__()
         # CodeQL requires this call to be made in all code paths
         if origin is not None:
             # Initialize with origin-based parameters
-            super().__init__(garage=garage, origin=origin)
+            super().__init__(garage=garage, origin=origin, initialization=initialization, **kwargs)
         else:
             # Initialize with direct parameters
-            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector)
+            super().__init__(vin=vin, garage=garage, managing_connector=managing_connector, initialization=initialization, **kwargs)

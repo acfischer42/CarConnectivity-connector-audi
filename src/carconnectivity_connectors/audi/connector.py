@@ -148,9 +148,11 @@ class Connector(BaseConnector):
         max_age (Optional[int]): Maximum age for cached data in seconds.
     """
 
-    def __init__(self, connector_id: str, car_connectivity: CarConnectivity, config: Dict) -> None:
+    def __init__(self, connector_id: str, car_connectivity: CarConnectivity, config: Dict,
+                 initialization: Optional[Dict] = None, **kwargs) -> None:
         BaseConnector.__init__(
-            self, connector_id=connector_id, car_connectivity=car_connectivity, config=config, log=LOG, api_log=LOG_API
+            self, connector_id=connector_id, car_connectivity=car_connectivity, config=config,
+            initialization=initialization, log=LOG, api_log=LOG_API
         )
 
         self._background_thread: Optional[threading.Thread] = None

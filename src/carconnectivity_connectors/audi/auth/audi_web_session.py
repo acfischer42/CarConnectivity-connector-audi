@@ -32,10 +32,10 @@ class AudiWebSession(OpenIDSession):
     """
 
     def __init__(self, session_user, cache, accept_terms_on_login=False, country="DE", language="de", **kwargs):
-        # Audi-specific client_id and redirect_uri (from audi_connect_ha)
-        audi_client_id = "09b6cbec-cd19-4589-82fd-363dfa8c24da@apps_vw-dilab_com"
+        # Audi-specific client_id and redirect_uri (updated to match working ioBroker implementation)
+        audi_client_id = "f4d0934f-32bf-4ce4-b3c4-699a7049ad26@apps_vw-dilab_com"
         audi_redirect_uri = "myaudi:///"
-        audi_scope = "openid email profile vin mbb"
+        audi_scope = "address badge birthdate birthplace email gallery mbb name nationalIdentifier nationality nickname phone picture profession profile vin openid"
         kwargs["client_id"] = audi_client_id
         kwargs["redirect_uri"] = audi_redirect_uri
         kwargs["scope"] = audi_scope
@@ -55,33 +55,34 @@ class AudiWebSession(OpenIDSession):
         self.market_config = None
         self.openid_config = None
 
-        # Dynamic client registration for MBB OAuth
+        # Dynamic client registration for MBB OAuth (updated to match working ioBroker implementation)
         self.client_secret = None
         self.registration_data = {
             "client_name": "CarConnectivity-Python",
             "platform": "android",
             "client_brand": "Audi",
             "appName": "myAudi",
-            "appVersion": "4.31.0",
+            "appVersion": "4.14.1",
             "appId": "de.myaudi.mobile.assistant",
         }
 
         # Set up the web session
-        retries = Retry(total=self.retries, backoff_factor=0.1, status_forcelist=[500], raise_on_status=False)
+        retries = Retry(total=self.retries, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], raise_on_status=False)
 
         self.websession: requests.Session = requests.Session()
         self.websession.proxies.update(self.proxies)
         self.websession.mount("https://", HTTPAdapter(max_retries=retries))
-        # Audi-specific user-agent and headers (from audi_connect_ha mobile app pattern)
+        # Audi-specific user-agent and headers (updated to match working ioBroker implementation)
         self.websession.headers = CaseInsensitiveDict(
             {
-                "user-agent": "myAudi-Android/4.31.0 (Android 11; SDK 30)",
+                "user-agent": "myAudi-Android/4.14.1 (Android 11; SDK 30)",
                 "accept": "application/json, text/plain, */*",
                 "accept-language": f"{self.language}-{self.country}, {self.language}; q=0.9",
                 "accept-encoding": "gzip, deflate",
                 "x-requested-with": "de.audi.myaudi",
-                "x-app-version": "4.31.0",
+                "x-app-version": "4.14.1",
                 "x-app-name": "myAudi",
+                "x-client-id": "59edf286-a9ca-4d34-9421-68da00f72dc8",
                 "upgrade-insecure-requests": "1",
             }
         )

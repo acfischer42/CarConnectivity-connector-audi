@@ -37,8 +37,8 @@ class WeConnectSession(AudiWebSession):
         kwargs["cache"] = kwargs.get("cache", {})
         super(WeConnectSession, self).__init__(**kwargs)
 
-        # Force the correct client_id after initialization
-        self.client_id = "09b6cbec-cd19-4589-82fd-363dfa8c24da@apps_vw-dilab_com"
+        # Force the correct client_id after initialization (updated to match working ioBroker implementation)
+        self.client_id = "f4d0934f-32bf-4ce4-b3c4-699a7049ad26@apps_vw-dilab_com"
         self.redirect_uri = "myaudi:///"
 
         LOG.debug(f"WeConnectSession initialized with client_id: {self.client_id}")
@@ -107,17 +107,130 @@ class WeConnectSession(AudiWebSession):
         response = self.do_web_auth(authorization_url_str)
         LOG.debug(f"Web auth completed, got response: {response[:100]}...")
 
-        # Parse tokens directly from the OAuth response
+        # Parse authorization response (may contain code or tokens)
         try:
             self.parse_from_fragment(response)
-            LOG.info("Login successful - tokens obtained from OAuth flow!")
         except Exception as parse_error:
             LOG.error(f"Failed to parse authentication response: {parse_error}")
             LOG.debug(f"Response that failed to parse: {response}")
             raise
 
+        # If we got an authorization code (PKCE flow), exchange it for tokens
+        if self.token and "code" in self.token and "access_token" not in self.token:
+            LOG.info("Authorization code received, exchanging for tokens via PKCE")
+            self._exchange_code_for_tokens()
+
+        if not self.token or "access_token" not in self.token:
+            raise AuthenticationError("Failed to obtain access token from authentication flow")
+
+        LOG.info("Login successful - tokens obtained from OAuth flow!")
+
         # Set the last_login time
         self.last_login = time.time()
+
+    def _exchange_code_for_tokens(self):
+        """Exchange authorization code for tokens using PKCE at Cariad BFF endpoint (like ioBroker)."""
+        if not self.token or "code" not in self.token:
+            raise AuthenticationError("No authorization code available for token exchange")
+
+        if not hasattr(self, "_code_verifier") or not self._code_verifier:
+            raise AuthenticationError("No code_verifier available for PKCE token exchange")
+
+        # Use Cariad BFF endpoint (same as ioBroker) - NOT identity.vwgroup.io
+        token_url = "https://emea.bff.cariad.digital/login/v1/idk/token"
+
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": self.token["code"],
+            "redirect_uri": self.redirect_uri,
+            "client_id": self.client_id,
+            "code_verifier": self._code_verifier,
+        }
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+
+        LOG.debug(f"Exchanging code for tokens at {token_url}")
+        LOG.debug(f"Token exchange params: client_id={self.client_id}, redirect_uri={self.redirect_uri}")
+        LOG.debug(f"Token exchange code_verifier length: {len(self._code_verifier)}")
+        try:
+            response = self.websession.post(token_url, data=token_data, headers=headers)
+            response.raise_for_status()
+
+            token_response = response.json()
+            LOG.debug(f"IDK token exchange successful, received keys: {list(token_response.keys())}")
+
+            # Update self.token with the received tokens
+            self.token = {
+                "access_token": token_response["access_token"],
+                "token_type": token_response.get("token_type", "bearer"),
+            }
+
+            if "expires_in" in token_response:
+                self.token["expires_in"] = int(token_response["expires_in"])
+                self.token["expires_at"] = time.time() + int(token_response["expires_in"])
+            if "id_token" in token_response:
+                self.token["id_token"] = token_response["id_token"]
+            if "refresh_token" in token_response:
+                self.token["refresh_token"] = token_response["refresh_token"]
+
+            LOG.info("IDK token exchange completed successfully")
+
+            # Now get Audi-specific token (like ioBroker does)
+            self._get_audi_token()
+
+        except requests.RequestException as e:
+            LOG.error(f"Token exchange failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                LOG.error(f"Token exchange error response: {e.response.text}")
+                LOG.error(f"Token exchange response headers: {dict(e.response.headers)}")
+            raise AuthenticationError(f"Failed to exchange authorization code for tokens: {e}") from e
+
+    def _get_audi_token(self):
+        """Exchange IDK token for Audi-specific token (like ioBroker does)."""
+        if not self.token or "access_token" not in self.token:
+            raise AuthenticationError("No access token available for Audi token exchange")
+
+        audi_token_url = "https://emea.bff.cariad.digital/login/v1/audi/token"
+
+        # Use the id_token if available, otherwise use access_token
+        token_to_exchange = self.token.get("id_token", self.token["access_token"])
+
+        token_data = {
+            "token": token_to_exchange,
+            "grant_type": "id_token",
+            "stage": "live",
+            "config": "myaudi",
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.token['access_token']}",
+        }
+
+        LOG.debug(f"Getting Audi token at {audi_token_url}")
+        try:
+            response = self.websession.post(audi_token_url, json=token_data, headers=headers)
+            response.raise_for_status()
+
+            audi_response = response.json()
+            LOG.debug(f"Audi token exchange successful, received keys: {list(audi_response.keys())}")
+
+            # Update token with Audi-specific tokens
+            if "access_token" in audi_response:
+                self.token["audi_access_token"] = audi_response["access_token"]
+            if "id_token" in audi_response:
+                self.token["audi_id_token"] = audi_response["id_token"]
+
+            LOG.info("Audi token exchange completed successfully")
+
+        except requests.RequestException as e:
+            LOG.warning(f"Audi token exchange failed (non-fatal): {e}")
+            if hasattr(e, "response") and e.response is not None:
+                LOG.debug(f"Audi token exchange error response: {e.response.text}")
 
     def refresh(self) -> None:
         # Try refresh tokens from refresh endpoint first
@@ -269,6 +382,7 @@ class WeConnectSession(AudiWebSession):
             raise AuthenticationError("Refreshing tokens failed: Server requests new authorization")
         if token_response.status_code in (
             requests.codes["internal_server_error"],
+            requests.codes["bad_gateway"],
             requests.codes["service_unavailable"],
             requests.codes["gateway_timeout"],
         ):
