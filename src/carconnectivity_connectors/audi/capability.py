@@ -19,8 +19,8 @@ class Capabilities(GenericObject):
     Represents the capabilities of an Audi vehicle.
     """
 
-    def __init__(self, vehicle: AudiVehicle) -> None:
-        super().__init__(object_id="capabilities", parent=vehicle)
+    def __init__(self, vehicle: AudiVehicle, initialization: Optional[Dict] = None) -> None:
+        super().__init__(object_id="capabilities", parent=vehicle, initialization=initialization)
         self.__capabilities: Dict[str, Capability] = {}
 
     @property
@@ -105,17 +105,21 @@ class Capability(GenericObject):
     Represents a capability of an Audi vehicle.
     """
 
-    def __init__(self, capability_id: str, capabilities: Capabilities) -> None:
+    def __init__(self, capability_id: str, capabilities: Capabilities, initialization: Optional[Dict] = None) -> None:
         if capabilities is None:
             raise ValueError("Cannot create capability without capabilities")
         if capability_id is None:
             raise ValueError("Capability ID cannot be None")
-        super().__init__(object_id=capability_id, parent=capabilities)
+        super().__init__(object_id=capability_id, parent=capabilities, initialization=initialization)
         self.delay_notifications = True
-        self.capability_id = StringAttribute("id", self, capability_id, tags={"connector_custom"})
-        self.expiration_date = DateAttribute("expiration_date", self, tags={"connector_custom"})
-        self.user_disabling_allowed = BooleanAttribute("user_disabling_allowed", self, tags={"connector_custom"})
-        self.status = GenericAttribute("status", self, value=[], tags={"connector_custom"})
+        self.capability_id = StringAttribute("id", self, capability_id, tags={"connector_custom"},
+                                             initialization=self.get_initialization("capability_id"))
+        self.expiration_date = DateAttribute("expiration_date", self, tags={"connector_custom"},
+                                             initialization=self.get_initialization("expiration_date"))
+        self.user_disabling_allowed = BooleanAttribute("user_disabling_allowed", self, tags={"connector_custom"},
+                                                       initialization=self.get_initialization("user_disabling_allowed"))
+        self.status = GenericAttribute("status", self, value=[], tags={"connector_custom"},
+                                       initialization=self.get_initialization("status"))
         self.enabled = True
         self.delay_notifications = False
 
