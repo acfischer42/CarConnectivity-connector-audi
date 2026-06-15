@@ -112,14 +112,21 @@ class Capability(GenericObject):
             raise ValueError("Capability ID cannot be None")
         super().__init__(object_id=capability_id, parent=capabilities, initialization=initialization)
         self.delay_notifications = True
-        self.capability_id = StringAttribute("id", self, capability_id, tags={"connector_custom"},
-                                             initialization=self.get_initialization("capability_id"))
-        self.expiration_date = DateAttribute("expiration_date", self, tags={"connector_custom"},
-                                             initialization=self.get_initialization("expiration_date"))
-        self.user_disabling_allowed = BooleanAttribute("user_disabling_allowed", self, tags={"connector_custom"},
-                                                       initialization=self.get_initialization("user_disabling_allowed"))
-        self.status = GenericAttribute("status", self, value=[], tags={"connector_custom"},
-                                       initialization=self.get_initialization("status"))
+        self.capability_id = StringAttribute(
+            "id", self, capability_id, tags={"connector_custom"}, initialization=self.get_initialization("capability_id")
+        )
+        self.expiration_date = DateAttribute(
+            "expiration_date", self, tags={"connector_custom"}, initialization=self.get_initialization("expiration_date")
+        )
+        self.user_disabling_allowed = BooleanAttribute(
+            "user_disabling_allowed",
+            self,
+            tags={"connector_custom"},
+            initialization=self.get_initialization("user_disabling_allowed"),
+        )
+        self.status = GenericAttribute(
+            "status", self, value=[], tags={"connector_custom"}, initialization=self.get_initialization("status")
+        )
         self.enabled = True
         self.delay_notifications = False
 

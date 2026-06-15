@@ -3,6 +3,16 @@
 
 set -e
 
+# Parse arguments
+FORCE=false
+for arg in "$@"; do
+    case $arg in
+        --force|-f)
+            FORCE=true
+            ;;
+    esac
+done
+
 # Check if we're on main branch
 current_branch=$(git branch --show-current)
 if [ "$current_branch" != "main" ]; then
@@ -12,8 +22,13 @@ fi
 
 # Check if working directory is clean
 if ! git diff-index --quiet HEAD --; then
-    echo "Error: Working directory is not clean. Please commit or stash changes."
-    exit 1
+    if [ "$FORCE" = true ]; then
+        echo "Warning: Working directory is not clean. Proceeding anyway (--force)."
+    else
+        echo "Error: Working directory is not clean. Please commit or stash changes."
+        echo "       Use --force or -f to override this check."
+        exit 1
+    fi
 fi
 
 # Run pre-commit checks to ensure code quality
