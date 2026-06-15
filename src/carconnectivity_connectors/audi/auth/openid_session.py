@@ -331,13 +331,14 @@ class OpenIDSession(requests.Session):
         """
         state = state or self.state
         # Generate PKCE code verifier and challenge (required for modern OAuth2 flows)
-        import hashlib
         import base64
+        import hashlib
         import secrets
+
         code_verifier = secrets.token_urlsafe(64)[:128]  # 128 char code verifier
-        code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode('ascii')).digest()
-        ).decode('ascii').rstrip('=')
+        code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
+        )
 
         # Store code_verifier for token exchange
         self._code_verifier = code_verifier
