@@ -37,8 +37,11 @@ class WeConnectSession(AudiWebSession):
         kwargs["cache"] = kwargs.get("cache", {})
         super(WeConnectSession, self).__init__(**kwargs)
 
-        # Force the correct client_id after initialization (updated to match working ioBroker implementation)
-        self.client_id = "f4d0934f-32bf-4ce4-b3c4-699a7049ad26@apps_vw-dilab_com"
+        # Force the correct client_id after initialization.
+        # The Audi native-app client (public PKCE client) accepted by the current
+        # CARIAD/Auth0 token endpoint. The previous VW client (f4d0934f...) was
+        # rotated out and now returns 401 invalid_client (see issues #27/#28/#29).
+        self.client_id = "09b6cbec-cd19-4589-82fd-363dfa8c24da@apps_vw-dilab_com"
         self.redirect_uri = "myaudi:///"
 
         LOG.debug(f"WeConnectSession initialized with client_id: {self.client_id}")
@@ -136,8 +139,10 @@ class WeConnectSession(AudiWebSession):
         if not hasattr(self, "_code_verifier") or not self._code_verifier:
             raise AuthenticationError("No code_verifier available for PKCE token exchange")
 
-        # Use Cariad BFF endpoint (same as ioBroker) - NOT identity.vwgroup.io
-        token_url = "https://emea.bff.cariad.digital/login/v1/idk/token"
+        # Current CARIAD/Auth0 OIDC token endpoint (per the IDK openid-configuration
+        # discovery document). The old /login/v1/idk/token path was retired in May 2026
+        # and now returns 403/401 (see issues #27/#28/#29).
+        token_url = "https://emea.bff.cariad.digital/auth/v1/idk/oidc/token"
 
         token_data = {
             "grant_type": "authorization_code",
@@ -178,8 +183,9 @@ class WeConnectSession(AudiWebSession):
 
             LOG.info("IDK token exchange completed successfully")
 
-            # Now get Audi-specific token (like ioBroker does)
-            self._get_audi_token()
+            # Note: the previously-used Audi-specific token exchange
+            # (/login/v1/audi/token) is no longer required — the IDK access_token
+            # returned above is accepted directly by the Cariad BFF vehicle APIs.
 
         except requests.RequestException as e:
             LOG.error(f"Token exchange failed: {e}")
@@ -233,16 +239,14 @@ class WeConnectSession(AudiWebSession):
                 LOG.debug(f"Audi token exchange error response: {e.response.text}")
 
     def refresh(self) -> None:
-        # Try refresh tokens from refresh endpoint first
+        # Try a standard OAuth2 refresh_token grant against the IDK OIDC token endpoint first
         try:
-            LOG.info("Attempting token refresh from refresh endpoint")
-            self.refresh_tokens(
-                "https://emea.bff.cariad.digital/user-login/refresh/v1",
-            )
-            LOG.info("Token refresh from endpoint successful")
+            LOG.info("Attempting token refresh using refresh_token grant")
+            self._refresh_with_refresh_token()
+            LOG.info("Token refresh successful")
         except Exception as e:
-            LOG.warning(f"Token refresh from endpoint failed: {e}")
-            LOG.info("Falling back to full re-authentication using working login flow")
+            LOG.warning(f"Token refresh failed: {e}")
+            LOG.info("Falling back to full re-authentication using login flow")
             # Fall back to the same login process that worked initially
             try:
                 self.login()
@@ -250,6 +254,40 @@ class WeConnectSession(AudiWebSession):
             except Exception as login_error:
                 LOG.error(f"Fallback re-authentication also failed: {login_error}")
                 raise
+
+    def _refresh_with_refresh_token(self):
+        """Refresh tokens using the OAuth2 refresh_token grant at the IDK OIDC token endpoint."""
+        if not self.token or "refresh_token" not in self.token:
+            raise AuthenticationError("No refresh token available for refresh")
+
+        token_url = "https://emea.bff.cariad.digital/auth/v1/idk/oidc/token"
+        token_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.token["refresh_token"],
+            "client_id": self.client_id,
+        }
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+
+        response = self.websession.post(token_url, data=token_data, headers=headers)
+        response.raise_for_status()
+        token_response = response.json()
+
+        new_token = {
+            "access_token": token_response["access_token"],
+            "token_type": token_response.get("token_type", "bearer"),
+        }
+        if "expires_in" in token_response:
+            new_token["expires_in"] = int(token_response["expires_in"])
+            new_token["expires_at"] = time.time() + int(token_response["expires_in"])
+        if "id_token" in token_response:
+            new_token["id_token"] = token_response["id_token"]
+        # Keep the (possibly rotated) refresh token; reuse the old one if none returned
+        new_token["refresh_token"] = token_response.get("refresh_token", self.token["refresh_token"])
+
+        self.token = new_token
 
     def authorization_url(self, url, state=None, **kwargs) -> str:
         # Use the same approach as the working VW version
