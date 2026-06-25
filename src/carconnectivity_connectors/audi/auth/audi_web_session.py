@@ -32,10 +32,10 @@ class AudiWebSession(OpenIDSession):
     """
 
     def __init__(self, session_user, cache, accept_terms_on_login=False, country="DE", language="de", **kwargs):
-        # Audi-specific client_id and redirect_uri (updated to match working ioBroker implementation)
-        audi_client_id = "f4d0934f-32bf-4ce4-b3c4-699a7049ad26@apps_vw-dilab_com"
+        # Audi native-app OAuth client (public PKCE client) and redirect URI.
+        audi_client_id = "09b6cbec-cd19-4589-82fd-363dfa8c24da@apps_vw-dilab_com"
         audi_redirect_uri = "myaudi:///"
-        audi_scope = "address badge birthdate birthplace email gallery mbb name nationalIdentifier nationality nickname phone picture profession profile vin openid"
+        audi_scope = "openid profile badge cars dealers vin"
         kwargs["client_id"] = audi_client_id
         kwargs["redirect_uri"] = audi_redirect_uri
         kwargs["scope"] = audi_scope
